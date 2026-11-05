@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"mdui/internal/app"
+	"mdui/internal/render"
 )
 
 func main() {
@@ -40,7 +41,7 @@ func main() {
 		root = abs
 	}
 
-	if _, err := tea.NewProgram(app.New(root)).Run(); err != nil {
+	if _, err := tea.NewProgram(app.New(root, app.WithStyle(render.DefaultStyle()))).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "mdui: %v\n", err)
 		os.Exit(1)
 	}

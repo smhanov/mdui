@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"mdui/internal/render"
 	"mdui/internal/style"
 	"mdui/internal/tree"
 	"mdui/internal/viewer"
@@ -54,15 +55,36 @@ type Model struct {
 	viewer   viewer.Model
 }
 
-// New returns a root model scoped to root.
-func New(root string) Model {
-	return Model{
-		root:   root,
-		ratio:  DefaultRatio,
-		focus:  FocusTree,
-		tree:   tree.New(root),
-		viewer: viewer.New(),
+type config struct {
+	docStyle render.Style
+}
+
+// Option configures the root model at construction time.
+type Option func(*config)
+
+// WithStyle selects the Glamour style used by the viewer. Styles are resolved
+// once at startup; an empty style means dark.
+func WithStyle(style render.Style) Option {
+	return func(c *config) {
+		c.docStyle = style
 	}
+}
+
+// New returns a root model scoped to root.
+func New(root string, opts ...Option) Model {
+	cfg := config{docStyle: render.Dark}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	m := Model{
+		root:  root,
+		ratio: DefaultRatio,
+		focus: FocusTree,
+	}
+	m.tree = tree.New(root)
+	m.viewer = viewer.New(cfg.docStyle)
+	return m
 }
 
 // Init implements tea.Model.
@@ -78,6 +100,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.tree.SetHeight(m.paneHeight())
+		_, _, viewerW := SplitWidths(m.width-style.Frame.GetHorizontalFrameSize(), m.ratio)
+		return m, m.viewer.SetSize(viewerW, m.paneHeight())
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -95,10 +119,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tree, cmd = m.tree.Update(msg)
 			return m, cmd
 		}
+		var cmd tea.Cmd
+		m.viewer, cmd = m.viewer.Update(msg)
+		return m, cmd
 	case tree.SelectionMsg:
 		m.selected = msg.Path
+		return m, m.viewer.Open(msg.Path)
+	default:
+		var cmd tea.Cmd
+		m.viewer, cmd = m.viewer.Update(msg)
+		return m, cmd
 	}
-	return m, nil
 }
 
 // View implements tea.Model.

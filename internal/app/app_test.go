@@ -9,6 +9,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"mdui/internal/tree"
 )
 
 func TestRenderShell(t *testing.T) {
@@ -141,6 +143,41 @@ func TestTreeKeysUpdateStatusBar(t *testing.T) {
 	}
 	if m.focus != FocusViewer {
 		t.Fatalf("focus = %v, want viewer", m.focus)
+	}
+}
+
+func TestSelectionOpensInViewer(t *testing.T) {
+	root := notesFixture(t)
+	alpha := filepath.Join(root, "alpha.md")
+
+	m := New(root)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 140, Height: 30})
+	m = next.(Model)
+
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("moving onto a file did not emit a selection message")
+	}
+	msg := cmd()
+	selection, ok := msg.(tree.SelectionMsg)
+	if !ok {
+		t.Fatalf("selection command returned %T, want tree.SelectionMsg", msg)
+	}
+	if selection.Path != alpha {
+		t.Fatalf("selected path = %q, want %q", selection.Path, alpha)
+	}
+
+	next, cmd = m.Update(selection)
+	m = next.(Model)
+	if cmd == nil {
+		t.Fatal("selection did not start a viewer render")
+	}
+	next, _ = m.Update(cmd())
+	m = next.(Model)
+
+	if !strings.Contains(m.viewer.Content(), "alpha.md") {
+		t.Fatalf("viewer does not show rendered file content:\n%s", m.viewer.Content())
 	}
 }
 
