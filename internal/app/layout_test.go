@@ -77,3 +77,79 @@ func TestSplitWidths(t *testing.T) {
 		})
 	}
 }
+
+func TestDividerHitZone(t *testing.T) {
+	tests := []struct {
+		name   string
+		totalW int
+		ratio  float64
+		x      int
+		want   bool
+	}{
+		{name: "center", totalW: 100, ratio: 0.3, x: 30, want: true},
+		{name: "left slop", totalW: 100, ratio: 0.3, x: 29, want: true},
+		{name: "right slop", totalW: 100, ratio: 0.3, x: 31, want: true},
+		{name: "tree edge", totalW: 100, ratio: 0.3, x: 28, want: false},
+		{name: "viewer edge", totalW: 100, ratio: 0.3, x: 32, want: false},
+		{name: "negative column", totalW: 100, ratio: 0.3, x: -1, want: false},
+		{name: "past content", totalW: 100, ratio: 0.3, x: 100, want: false},
+		{name: "zero width", totalW: 0, ratio: 0.3, x: 0, want: false},
+		{name: "clamped left", totalW: 100, ratio: 0, x: 20, want: true},
+		{name: "clamped right", totalW: 100, ratio: 1, x: 69, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := InDividerZone(tt.totalW, tt.ratio, tt.x); got != tt.want {
+				t.Fatalf("InDividerZone(%d, %v, %d) = %v, want %v",
+					tt.totalW, tt.ratio, tt.x, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRatioAtColumn(t *testing.T) {
+	tests := []struct {
+		name   string
+		totalW int
+		x      int
+		want   float64
+	}{
+		{name: "middle", totalW: 100, x: 40, want: 0.4},
+		{name: "left clamp", totalW: 100, x: -10, want: 0.2},
+		{name: "right clamp", totalW: 100, x: 200, want: 0.69},
+		{name: "zero width defaults", totalW: 0, x: 10, want: DefaultRatio},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := RatioAtColumn(tt.totalW, tt.x)
+			if math.Abs(got-tt.want) > 1e-9 {
+				t.Fatalf("RatioAtColumn(%d, %d) = %v, want %v", tt.totalW, tt.x, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNudgeRatio(t *testing.T) {
+	tests := []struct {
+		name    string
+		totalW  int
+		ratio   float64
+		columns int
+		want    float64
+	}{
+		{name: "grow two", totalW: 100, ratio: 0.3, columns: 2, want: 0.32},
+		{name: "shrink two", totalW: 100, ratio: 0.3, columns: -2, want: 0.28},
+		{name: "grow clamps at viewer minimum", totalW: 100, ratio: 0.68, columns: 100, want: 0.69},
+		{name: "shrink clamps at tree minimum", totalW: 100, ratio: 0.2, columns: -100, want: 0.2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := NudgeRatio(tt.totalW, tt.ratio, tt.columns)
+			if math.Abs(got-tt.want) > 1e-9 {
+				t.Fatalf("NudgeRatio(%d, %v, %d) = %v, want %v",
+					tt.totalW, tt.ratio, tt.columns, got, tt.want)
+			}
+		})
+	}
+}

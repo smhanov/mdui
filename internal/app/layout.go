@@ -9,6 +9,9 @@ const (
 	ViewerMinW = 30
 	// DividerW is the width of the column between the panes.
 	DividerW = 1
+	// DividerHitSlop is how many columns either side of the divider still
+	// start a drag.
+	DividerHitSlop = 1
 	// DefaultRatio is the tree's share of the content width on first launch.
 	DefaultRatio = 0.3
 )
@@ -78,4 +81,41 @@ func clampInt(v, lo, hi int) int {
 		return hi
 	}
 	return v
+}
+
+// DividerColumn returns the content-relative column occupied by the divider.
+// totalW is the space available to both panes, divider included.
+func DividerColumn(totalW int, ratio float64) int {
+	treeW, _, _ := SplitWidths(totalW, ratio)
+	return treeW
+}
+
+// InDividerZone reports whether content column x lies within the divider's
+// ±DividerHitSlop drag zone.
+func InDividerZone(totalW int, ratio float64, x int) bool {
+	if totalW <= 0 || x < 0 || x >= totalW {
+		return false
+	}
+	divider := DividerColumn(totalW, ratio)
+	return x >= divider-DividerHitSlop && x <= divider+DividerHitSlop
+}
+
+// RatioAtColumn converts a divider column into a pane ratio, clamped so both
+// panes keep their minimum widths. Columns outside the content area are
+// clamped to the nearest edge.
+func RatioAtColumn(totalW, x int) float64 {
+	if totalW <= 0 {
+		return DefaultRatio
+	}
+	return ClampRatio(totalW, float64(clampInt(x, 0, totalW))/float64(totalW))
+}
+
+// NudgeRatio moves the divider by columns (negative shrinks the tree) and
+// returns the resulting clamped ratio.
+func NudgeRatio(totalW int, ratio float64, columns int) float64 {
+	if totalW <= 0 {
+		return ClampRatio(totalW, ratio)
+	}
+	treeW := DividerColumn(totalW, ratio)
+	return RatioAtColumn(totalW, treeW+columns)
 }

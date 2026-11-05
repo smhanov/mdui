@@ -29,6 +29,10 @@ var (
 	Divider = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(muted))
 
+	// DividerActive is the brighter rule shown while the splitter is dragged.
+	DividerActive = lipgloss.NewStyle().
+			Bold(true)
+
 	// Pane gives pane content a one-cell inset on each side.
 	Pane = lipgloss.NewStyle().
 		Padding(0, 1)

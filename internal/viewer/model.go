@@ -285,6 +285,11 @@ func (m Model) Content() string {
 	return m.viewport.GetContent()
 }
 
+// ScrollOffset returns the first visible line in the viewport.
+func (m Model) ScrollOffset() int {
+	return m.viewport.YOffset()
+}
+
 func (m Model) innerWidth(width int) int {
 	return width - style.Pane.GetHorizontalFrameSize()
 }

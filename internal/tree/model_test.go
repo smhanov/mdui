@@ -59,6 +59,41 @@ func keyMsg(key string) tea.KeyPressMsg {
 	}
 }
 
+func TestScrollMovesCursorAndWindow(t *testing.T) {
+	root := t.TempDir()
+	for i := range 20 {
+		writeNote(t, root, fmt.Sprintf("note%02d.md", i))
+	}
+	m := New(root)
+	m.SetHeight(5)
+
+	cmd := m.Scroll(3)
+	if cmd == nil {
+		t.Fatal("scroll onto a file emitted no selection")
+	}
+	if _, ok := cmd().(SelectionMsg); !ok {
+		t.Fatal("scroll did not emit a SelectionMsg")
+	}
+	if m.cursor != 3 {
+		t.Fatalf("cursor = %d, want 3", m.cursor)
+	}
+	assertCursorVisible(t, m)
+
+	m.Scroll(1000)
+	if m.cursor != len(m.rows)-1 {
+		t.Fatalf("scroll to bottom cursor = %d, want %d", m.cursor, len(m.rows)-1)
+	}
+	assertCursorVisible(t, m)
+
+	m.Scroll(-1000)
+	if m.cursor != 0 {
+		t.Fatalf("scroll to top cursor = %d, want 0", m.cursor)
+	}
+	if cmd := m.Scroll(0); cmd != nil {
+		t.Fatal("zero scroll emitted a command")
+	}
+}
+
 func TestNavigationKeys(t *testing.T) {
 	m := treeFixture(t)
 

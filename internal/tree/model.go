@@ -116,6 +116,16 @@ func (m *Model) move(delta int) tea.Cmd {
 	return m.moveTo(target, delta < 0)
 }
 
+// Scroll moves the cursor by delta rows, positive downward. It is the mouse
+// wheel equivalent of repeated j/k presses; the cursor (and therefore the
+// selection preview) follows the visible window.
+func (m *Model) Scroll(delta int) tea.Cmd {
+	if delta == 0 {
+		return nil
+	}
+	return m.move(delta)
+}
+
 func (m *Model) movePage(direction int) tea.Cmd {
 	page := m.height
 	if page < 1 {
