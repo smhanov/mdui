@@ -10,8 +10,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"mdui/internal/render"
-	"mdui/internal/style"
+	"github.com/smhanov/mdui/internal/render"
+	"github.com/smhanov/mdui/internal/style"
 )
 
 const (

@@ -1,4 +1,4 @@
-module mdui
+module github.com/smhanov/mdui
 
 go 1.27.0
 

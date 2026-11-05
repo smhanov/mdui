@@ -6,9 +6,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"mdui/internal/mdutil"
-	"mdui/internal/render"
-	"mdui/internal/style"
+	"github.com/smhanov/mdui/internal/mdutil"
+	"github.com/smhanov/mdui/internal/render"
+	"github.com/smhanov/mdui/internal/style"
 )
 
 // tableRenderedMsg is the result of rendering the current document at the

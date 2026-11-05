@@ -11,8 +11,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"mdui/internal/config"
-	"mdui/internal/tree"
+	"github.com/smhanov/mdui/internal/config"
+	"github.com/smhanov/mdui/internal/tree"
 )
 
 func TestViewEnablesCellMotion(t *testing.T) {

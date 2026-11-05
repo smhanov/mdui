@@ -5,8 +5,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"mdui/internal/render"
-	"mdui/internal/style"
+	"github.com/smhanov/mdui/internal/render"
+	"github.com/smhanov/mdui/internal/style"
 )
 
 type overlayKind int

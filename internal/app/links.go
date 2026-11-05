@@ -8,8 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"mdui/internal/mdutil"
-	"mdui/internal/viewer"
+	"github.com/smhanov/mdui/internal/mdutil"
+	"github.com/smhanov/mdui/internal/viewer"
 )
 
 // handleViewerClick maps a terminal row in the viewer pane to a rendered line

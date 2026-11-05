@@ -10,7 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"mdui/internal/mdutil"
+	"github.com/smhanov/mdui/internal/mdutil"
 )
 
 const appWideTable = `# Wide table

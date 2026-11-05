@@ -6,8 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"mdui/internal/finder"
-	"mdui/internal/viewer"
+	"github.com/smhanov/mdui/internal/finder"
+	"github.com/smhanov/mdui/internal/viewer"
 )
 
 // finderState is the index lifecycle while the overlay is open.

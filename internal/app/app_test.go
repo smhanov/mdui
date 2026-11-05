@@ -9,7 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"mdui/internal/tree"
+	"github.com/smhanov/mdui/internal/tree"
 )
 
 func TestRenderShell(t *testing.T) {

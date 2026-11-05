@@ -13,7 +13,7 @@ import (
 	"charm.land/glamour/v2/styles"
 	"charm.land/lipgloss/v2"
 
-	"mdui/internal/style"
+	"github.com/smhanov/mdui/internal/style"
 )
 
 const (

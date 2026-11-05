@@ -13,9 +13,9 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
-	"mdui/internal/docsearch"
-	"mdui/internal/render"
-	"mdui/internal/style"
+	"github.com/smhanov/mdui/internal/docsearch"
+	"github.com/smhanov/mdui/internal/render"
+	"github.com/smhanov/mdui/internal/style"
 )
 
 const welcomeSource = "<welcome>"

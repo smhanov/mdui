@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"mdui/internal/render"
+	"github.com/smhanov/mdui/internal/render"
 )
 
 const wideTableSource = `# Wide table

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"mdui/internal/render"
+	"github.com/smhanov/mdui/internal/render"
 )
 
 func TestWordCountMatchesWc(t *testing.T) {

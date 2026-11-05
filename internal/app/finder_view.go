@@ -7,8 +7,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"mdui/internal/finder"
-	"mdui/internal/style"
+	"github.com/smhanov/mdui/internal/finder"
+	"github.com/smhanov/mdui/internal/style"
 )
 
 // renderFinderOverlay centres the finder box over the dimmed shell. The list

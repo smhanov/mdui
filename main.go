@@ -10,9 +10,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"mdui/internal/app"
-	"mdui/internal/config"
-	"mdui/internal/render"
+	"github.com/smhanov/mdui/internal/app"
+	"github.com/smhanov/mdui/internal/config"
+	"github.com/smhanov/mdui/internal/render"
 )
 
 func main() {

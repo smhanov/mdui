@@ -6,7 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"mdui/internal/style"
+	"github.com/smhanov/mdui/internal/style"
 )
 
 // View renders the visible window of rows at exactly width by height cells.

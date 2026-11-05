@@ -3,15 +3,47 @@
 A fast two-pane terminal viewer for folders of markdown files: browse the file
 tree on the left, read the rendered document on the right.
 
+- **Markdown, beautifully rendered** — headings, code highlighting, lists, and
+  Glamour v2 tables with wrapped cells and footnote links.
+- **Built for tables** — a crushed table offers `T` to open at full terminal
+  width; relative, anchor, and web links are clickable.
+- **Fast by default** — asynchronous rendering, a render cache, lazy directory
+  loading, and windowed views keep large folders responsive.
+- **Mouse and keyboard** — drag the divider, wheel-scroll either pane, or use
+  the full vim-friendly keymap. Press `?` for help.
+
+## Install
+
+Requires Go 1.27 or newer.
+
 ```sh
-go build -o mdui .
-./mdui [flags] [folder]
+go install github.com/smhanov/mdui@latest
 ```
 
-The folder defaults to the current directory. Go 1.27 or newer is required.
-Prebuilt binaries can go anywhere on `PATH`; from a checkout, `go install .`
-also puts the binary in `$GOBIN`. mdui reads its configuration from
-`~/.config/mdui/` (or `$XDG_CONFIG_HOME/mdui/`).
+The binary lands in `$GOBIN` (usually `~/go/bin`), which should be on your
+`PATH`. To build from a checkout instead:
+
+```sh
+git clone https://github.com/smhanov/mdui.git
+cd mdui
+go build -o mdui .
+```
+
+Optionally install that local build system-wide:
+
+```sh
+sudo install -m755 mdui /usr/local/bin/mdui
+```
+
+## Usage
+
+```sh
+mdui [flags] [folder]
+```
+
+The folder defaults to the current directory. mdui reads its configuration
+from `~/.config/mdui/` (or `$XDG_CONFIG_HOME/mdui/`); see
+[Configuration](#configuration).
 
 ## Keys
 

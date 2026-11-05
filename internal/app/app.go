@@ -11,13 +11,13 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"mdui/internal/config"
-	"mdui/internal/finder"
-	"mdui/internal/mdutil"
-	"mdui/internal/render"
-	"mdui/internal/style"
-	"mdui/internal/tree"
-	"mdui/internal/viewer"
+	"github.com/smhanov/mdui/internal/config"
+	"github.com/smhanov/mdui/internal/finder"
+	"github.com/smhanov/mdui/internal/mdutil"
+	"github.com/smhanov/mdui/internal/render"
+	"github.com/smhanov/mdui/internal/style"
+	"github.com/smhanov/mdui/internal/tree"
+	"github.com/smhanov/mdui/internal/viewer"
 )
 
 const (

@@ -11,7 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"mdui/internal/config"
+	"github.com/smhanov/mdui/internal/config"
 )
 
 func TestHelpOverlayOpensAndDismisses(t *testing.T) {
