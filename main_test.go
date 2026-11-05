@@ -1,10 +1,14 @@
 package main
 
 import (
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -39,5 +43,52 @@ func TestValidateDir(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
 	if err := validateDir(locked); err == nil {
 		t.Fatal("validateDir(unreadable) = nil, want error")
+	}
+}
+
+func TestUserTTYError(t *testing.T) {
+	// openTTY builds the error chain bubbletea creates when OpenTTY fails:
+	// two wrapped messages around the *fs.PathError from the open itself.
+	openTTY := func(errno error) error {
+		return fmt.Errorf("bubbletea: error opening TTY: %w",
+			fmt.Errorf("bubbletea: could not open TTY: %w",
+				&fs.PathError{Op: "open", Path: "/dev/tty", Err: errno}))
+	}
+
+	msg, ok := userTTYError(openTTY(syscall.ENXIO))
+	if !ok {
+		t.Fatal("userTTYError(ENXIO chain) = ok false, want true")
+	}
+	if want := "no interactive terminal available (mdui needs a TTY to display its interface)"; msg != want {
+		t.Fatalf("userTTYError(ENXIO chain) = %q, want %q", msg, want)
+	}
+	if strings.Contains(msg, "bubbletea") || strings.Contains(msg, "/dev/tty") {
+		t.Fatalf("userTTYError(ENXIO chain) message %q leaks internals", msg)
+	}
+
+	if _, ok := userTTYError(openTTY(syscall.ENOENT)); !ok {
+		t.Fatal("userTTYError(ENOENT chain) = ok false, want true")
+	}
+
+	// The message fallback keeps matching if a future bubbletea wraps the
+	// same wording differently.
+	if _, ok := userTTYError(fmt.Errorf("repl: %w", errors.New("bubbletea: could not open TTY: oops"))); !ok {
+		t.Fatal("userTTYError(message fallback) = ok false, want true")
+	}
+
+	// Unrelated errors pass through so main can report them verbatim.
+	file := filepath.Join(t.TempDir(), "note.md")
+	if err := os.WriteFile(file, []byte("# note\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := validateDir(file)
+	if err == nil {
+		t.Fatal("validateDir(file) = nil, want not-a-directory error for passthrough case")
+	}
+	if _, ok := userTTYError(err); ok {
+		t.Fatalf("userTTYError(%v) = ok true, want false", err)
+	}
+	if _, ok := userTTYError(fmt.Errorf("read %s: %w", file, os.ErrNotExist)); ok {
+		t.Fatal("userTTYError(os.ErrNotExist) = ok true, want false")
 	}
 }

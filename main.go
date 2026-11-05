@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -113,7 +115,11 @@ func main() {
 		app.WithStatePath(statePath),
 	)
 	if _, err := tea.NewProgram(model).Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "mdui: %v\n", err)
+		if msg, ok := userTTYError(err); ok {
+			fmt.Fprintf(os.Stderr, "mdui: %s\n", msg)
+		} else {
+			fmt.Fprintf(os.Stderr, "mdui: %v\n", err)
+		}
 		os.Exit(1)
 	}
 }
@@ -164,4 +170,16 @@ func pathError(path string, err error) error {
 		err = pe.Err
 	}
 	return fmt.Errorf("%s: %w", path, err)
+}
+
+// userTTYError recognizes the error bubbletea returns when mdui starts without
+// a terminal to attach to and maps it to a single friendly line. The ok result
+// is false for any other error, which callers report verbatim.
+func userTTYError(err error) (string, bool) {
+	const msg = "no interactive terminal available (mdui needs a TTY to display its interface)"
+	if errors.Is(err, syscall.ENXIO) || errors.Is(err, syscall.ENOENT) ||
+		strings.Contains(err.Error(), "could not open TTY") {
+		return msg, true
+	}
+	return "", false
 }

@@ -125,12 +125,12 @@ func TestJoinSoftBreaksEmpty(t *testing.T) {
 // the bug: hard-wrapped bullet items with two-space continuations.
 func TestJoinSoftBreaksPlansStyle(t *testing.T) {
 	in := "## Context and prerequisites\n\n" +
-		"- Depends: T001 (shell); integrates the `tree.SelectionMsg` emitted by T002\n" +
+		"- Depends: S001 (shell); integrates the `tree.SelectionMsg` emitted by S002\n" +
 		"  (status-bar-only until this task wires it into the viewer).\n" +
 		"- Spec source of truth: `specs.md` §6.2 (viewer), §7.1 (Glamour config),\n" +
 		"  §7.3 (colours), §8 (performance), §9 (edge cases).\n"
 	want := "## Context and prerequisites\n\n" +
-		"- Depends: T001 (shell); integrates the `tree.SelectionMsg` emitted by T002 (status-bar-only until this task wires it into the viewer).\n" +
+		"- Depends: S001 (shell); integrates the `tree.SelectionMsg` emitted by S002 (status-bar-only until this task wires it into the viewer).\n" +
 		"- Spec source of truth: `specs.md` §6.2 (viewer), §7.1 (Glamour config), §7.3 (colours), §8 (performance), §9 (edge cases).\n"
 	if got := string(joinSoftBreaks([]byte(in))); got != want {
 		t.Errorf("joinSoftBreaks plans style =\n%q\nwant\n%q", got, want)
