@@ -54,6 +54,10 @@ var (
 	HelpBorder = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(muted))
 
+	// OverlayTitle emphasises the heading of a table overlay or picker.
+	OverlayTitle = lipgloss.NewStyle().
+			Bold(true)
+
 	// MouseHint is the bar shown while mouse capture is off.
 	MouseHint = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("3")).

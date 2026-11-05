@@ -3,6 +3,7 @@ package render
 import (
 	"bytes"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -195,5 +196,63 @@ func TestRenderWidthChangesOutput(t *testing.T) {
 	}
 	if narrow.Rendered == wide.Rendered {
 		t.Fatal("different widths produced identical output")
+	}
+}
+
+func TestGoldenTableWidths(t *testing.T) {
+	// Tables reflow at three widths, including CJK and emoji cells and both
+	// table-relative and remote footnote links. Regenerate with:
+	// go test ./internal/render -run TestGoldenTableWidths -update
+	fixture := filepath.Join("testdata", "table-widths.md")
+	for _, width := range []int{60, 80, 100} {
+		t.Run(fmt.Sprintf("width-%d", width), func(t *testing.T) {
+			msg, ok := NewCmd(uint64(width), fixture, width, MduiDark)().(RenderedMsg)
+			if !ok {
+				t.Fatal("render command returned an unexpected message type")
+			}
+			if msg.Err != nil {
+				t.Fatalf("render failed: %v", msg.Err)
+			}
+			plain := ansi.Strip(msg.Rendered)
+			for _, want := range []string{"Table widths", "Service", "東京", "🚀", "[1]: other", "https://example.com/path"} {
+				if !strings.Contains(plain, want) {
+					t.Errorf("width %d output does not contain %q", width, want)
+				}
+			}
+
+			goldenPath := filepath.Join("testdata", fmt.Sprintf("table-widths-%d.golden", width))
+			if *updateGolden {
+				if err := os.WriteFile(goldenPath, []byte(msg.Rendered), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			want, err := os.ReadFile(goldenPath)
+			if err != nil {
+				t.Fatalf("read golden: %v", err)
+			}
+			if msg.Rendered != string(want) {
+				t.Errorf("rendered output differs from %s\nrun: go test ./internal/render -run TestGoldenTableWidths -update", goldenPath)
+			}
+		})
+	}
+}
+
+func TestRenderMalformedTable(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "malformed.md")
+	source := "# Broken\n\n| A | B |\n| --- |\n| one | two |\n\nstill renders\n"
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	msg, ok := NewCmd(1, path, 80, MduiDark)().(RenderedMsg)
+	if !ok {
+		t.Fatal("render command returned an unexpected message type")
+	}
+	if msg.Err != nil {
+		t.Fatalf("malformed table failed to render: %v", msg.Err)
+	}
+	if !strings.Contains(ansi.Strip(msg.Rendered), "still renders") {
+		t.Fatal("content after the malformed table is missing")
 	}
 }

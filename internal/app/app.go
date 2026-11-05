@@ -12,6 +12,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"mdui/internal/config"
+	"mdui/internal/mdutil"
 	"mdui/internal/render"
 	"mdui/internal/style"
 	"mdui/internal/tree"
@@ -86,6 +87,27 @@ type Model struct {
 	lastTreeW       int
 	clampRatio      bool
 
+	tableReqID       uint64
+	tableActiveReq   uint64
+	tablePriorScroll int
+	tablePick        int
+	tableTitle       string
+	tableBody        []string
+	tableChoices     []mdutil.Table
+	tableLoading     bool
+	tableError       string
+	tableClipped     bool
+
+	links        []mdutil.Link
+	headings     []mdutil.Heading
+	headingLines []int
+	tables       []mdutil.Table
+
+	pendingLink   *mdutil.LinkTarget
+	pendingAnchor string
+	notice        string
+	opener        func(string) error
+
 	lastClickValid bool
 	lastClickIndex int
 	lastClickPath  string
@@ -106,6 +128,7 @@ type options struct {
 	sortBy       string
 	mouse        bool
 	now          func() time.Time
+	opener       func(string) error
 }
 
 // dragTickMsg is delivered by the debounce timer during a splitter drag. Seq
@@ -164,6 +187,14 @@ func WithClock(now func() time.Time) Option {
 	}
 }
 
+// WithOpener injects the system URL opener. Tests use it to assert dispatch
+// without launching a browser; an empty opener falls back to open/xdg-open.
+func WithOpener(opener func(string) error) Option {
+	return func(c *options) {
+		c.opener = opener
+	}
+}
+
 // New returns a root model scoped to root.
 func New(root string, opts ...Option) Model {
 	cfg := options{
@@ -193,6 +224,11 @@ func New(root string, opts ...Option) Model {
 	}
 	if m.now == nil {
 		m.now = time.Now
+	}
+	if cfg.opener != nil {
+		m.opener = cfg.opener
+	} else {
+		m.opener = systemOpener
 	}
 	if cfg.ratioSet {
 		m.ratio = cfg.treeRatio
@@ -237,7 +273,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.overlay == overlayHelp {
 			m = m.openHelp()
 		}
-		return m, m.resizePanes()
+		resizeCmd := m.resizePanes()
+		if m.overlay == overlayTable && len(m.tableChoices) > 0 {
+			next, tableCmd := m.beginTableRender(m.tablePick)
+			return next, chainCommands(resizeCmd, tableCmd)
+		}
+		return m, resizeCmd
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	case tea.MouseClickMsg:
@@ -253,6 +294,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.stats = msg
 		}
 		return m, nil
+	case render.RenderedMsg:
+		var cmd tea.Cmd
+		m.viewer, cmd = m.viewer.Update(msg)
+		if msg.Path == m.selected && !msg.RawOnly && msg.Err == nil && !msg.Large && msg.Rendered == m.viewer.Content() {
+			cmd = chainCommands(cmd, m.applyRenderedIndex(msg))
+		}
+		return m, cmd
+	case tableRenderedMsg:
+		return m.handleTableRendered(msg)
 	case dragTickMsg:
 		if !m.dragging || msg.Seq != m.dragSeq {
 			return m, nil
@@ -262,6 +312,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tree.SelectionMsg:
 		m.selected = msg.Path
 		m.stats = viewer.StatsMsg{Path: msg.Path}
+		m.resetDocumentIndex()
 		return m, m.viewer.Open(msg.Path)
 	default:
 		var cmd tea.Cmd
@@ -271,13 +322,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if m.overlay != overlayNone {
+	if m.pendingLink != nil {
+		switch msg.String() {
+		case "y", "Y":
+			return m.confirmPendingLink()
+		case "n", "N", "esc":
+			m.pendingLink = nil
+			m.notice = ""
+		}
+		return m, nil
+	}
+
+	switch m.overlay {
+	case overlayTable:
+		return m.dismissTableOverlay()
+	case overlayTablePicker:
+		return m.handleTablePickerKey(msg)
+	case overlayHelp:
 		switch msg.String() {
 		case "?", "esc":
 			m.overlay = overlayNone
 			m.helpBody = ""
 		}
 		return m, nil
+	}
+
+	m.notice = ""
+	if msg.String() == "enter" && m.focus == FocusViewer {
+		return m.followVisibleLink()
 	}
 
 	switch msg.String() {
@@ -287,6 +359,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m = m.openHelp()
 		return m, nil
+	case "T":
+		return m.openTableOverlay()
 	case "m":
 		return m.toggleMouse()
 	case "tab", "shift+tab":
@@ -358,6 +432,12 @@ func (m Model) render() string {
 
 	if m.overlay == overlayHelp && m.helpBody != "" {
 		return m.renderHelpOverlay(base)
+	}
+	if m.overlay == overlayTable {
+		return m.renderTableOverlay(base)
+	}
+	if m.overlay == overlayTablePicker {
+		return m.renderTablePickerOverlay(base)
 	}
 	return base
 }
@@ -489,7 +569,13 @@ func (m *Model) scheduleDragTick() tea.Cmd {
 }
 
 func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	if !m.mouse || m.overlay != overlayNone {
+	if m.overlay == overlayTable {
+		return m.dismissTableOverlay()
+	}
+	if m.overlay != overlayNone {
+		return m, nil
+	}
+	if !m.mouse {
 		return m, nil
 	}
 	mouse := msg.Mouse()
@@ -507,6 +593,9 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case regionTree:
 		return m.handleTreeClick(mouse.X, mouse.Y)
+	case regionViewer:
+		m.clearClick()
+		return m.handleViewerClick(mouse.Y)
 	default:
 		m.clearClick()
 		return m, nil
@@ -672,6 +761,9 @@ func (m Model) renderStatus(width int) string {
 }
 
 func (m Model) statusLeft() string {
+	if m.pendingLink != nil {
+		return "open " + m.pendingLink.URL + "? y open · n cancel"
+	}
 	if m.selected == "" {
 		return "no file selected"
 	}
@@ -688,6 +780,15 @@ func (m Model) statusLeft() string {
 }
 
 func (m Model) statusRight() string {
+	if m.notice != "" {
+		return "⚠ " + m.notice
+	}
+	if m.pendingLink != nil {
+		return "confirm open"
+	}
+	if m.tableClipped && m.selected != "" && !m.viewer.RawMode() {
+		return "table clipped — T to view full width"
+	}
 	if m.degraded() {
 		return "resize to ≥80×24"
 	}

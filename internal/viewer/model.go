@@ -350,9 +350,28 @@ func (m Model) Content() string {
 	return m.viewport.GetContent()
 }
 
+// RawMode reports whether the pane is showing raw markdown.
+func (m Model) RawMode() bool {
+	return m.rawMode
+}
+
 // ScrollOffset returns the first visible line in the viewport.
 func (m Model) ScrollOffset() int {
 	return m.viewport.YOffset()
+}
+
+// SetScrollOffset restores a previously captured viewport offset and refreshes
+// the status-bar figures.
+func (m *Model) SetScrollOffset(offset int) tea.Cmd {
+	m.viewport.SetYOffset(offset)
+	return m.statsCommand(true)
+}
+
+// ScrollToLine puts the given rendered line at the top of the viewport and
+// refreshes the status-bar figures.
+func (m *Model) ScrollToLine(line int) tea.Cmd {
+	m.viewport.SetYOffset(line)
+	return m.statsCommand(true)
 }
 
 // Warning returns the status-bar notice for a file that vanished after its

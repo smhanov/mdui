@@ -28,11 +28,15 @@ also puts the binary in `$GOBIN`. mdui reads its configuration from
 | `H` / `L` | shrink / grow the tree pane by two columns |
 | `=` | reset the pane split |
 | `r` | toggle raw markdown in the viewer |
+| `T` | open the table under the viewport at full width; any key closes |
 | `.` | show or hide dot-prefixed files in the tree |
 | `m` | toggle terminal mouse capture |
 
 Moving the tree cursor previews files immediately; `Enter` toggles a
-directory or re-opens a file without changing panes.
+directory or re-opens a file without changing panes. In the viewer, `Enter`
+follows the first table footnote link visible in the viewport. When a table
+row wraps to more than three rendered lines, the status bar offers `T` to
+show that table at full terminal width.
 
 ## Mouse
 
@@ -45,6 +49,7 @@ While mouse capture is on:
 | double-click a directory | expand it and move to its first child |
 | drag the divider | resize the panes |
 | wheel over a pane | scroll that pane |
+| click a table footnote `[n]` | follow the link (relative `.md` in-app, `#anchor` scroll, http(s) after `y` confirmation) |
 | shift-click / shift-drag | pass through to the terminal's native selection |
 
 Press `m` to turn capture off when you want to select and copy text normally.
@@ -158,5 +163,10 @@ an inline error in the viewer.
 - Documents over 2 MiB are not rendered automatically; press `r` to read the
   raw source.
 - Markdown tables are rendered with wrapped cells and footnote-style links.
+  `T` shows a table at full terminal width; horizontal panning inside that
+  overlay is not implemented yet.
+- Relative `.md` links open in the viewer (the tree cursor is not moved),
+  `#anchors` scroll within the current document, and http(s) links require
+  confirmation before the system opener runs. Other schemes are refused.
 - Document search, a fuzzy file finder, an outline sidebar, and opening files
   in `$EDITOR` are not implemented yet.

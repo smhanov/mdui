@@ -42,18 +42,26 @@ func TestEmbeddedStylesheetRendersTable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := RenderBytes(data, 60, Options{Style: MduiDark})
-	if err != nil {
-		t.Fatalf("RenderBytes(MduiDark): %v", err)
-	}
-	plain := ansi.Strip(rendered)
-	for _, want := range []string{"Quarterly review", "┼", "│", "─"} {
-		if !strings.Contains(plain, want) {
-			t.Errorf("mdui-dark table missing %q:\n%s", want, plain)
+	// Glamour's stylesheet schema has a single table style, so the embedded
+	// sheets cannot colour the header/border separately from the cells. They
+	// do keep the whole table bold/coloured with Unicode rules in both sheets.
+	for _, sheet := range []Style{MduiDark, MduiLight} {
+		rendered, err := RenderBytes(data, 60, Options{Style: sheet})
+		if err != nil {
+			t.Fatalf("RenderBytes(%s): %v", sheet, err)
 		}
-	}
-	if !strings.Contains(rendered, "38;5;252;1m") && !strings.Contains(rendered, "38;5;252") {
-		t.Error("mdui-dark table cells are not coloured")
+		plain := ansi.Strip(rendered)
+		for _, want := range []string{"Quarterly review", "┼", "│", "─"} {
+			if !strings.Contains(plain, want) {
+				t.Errorf("%s table missing %q:\n%s", sheet, want, plain)
+			}
+		}
+		if !strings.Contains(rendered, ";1m") {
+			t.Errorf("%s table cells are not bold", sheet)
+		}
+		if !strings.Contains(rendered, "38;5;252") && !strings.Contains(rendered, "38;5;234") {
+			t.Errorf("%s table cells are not coloured", sheet)
+		}
 	}
 }
 
