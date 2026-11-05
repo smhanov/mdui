@@ -1,6 +1,9 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -9,7 +12,8 @@ import (
 )
 
 func TestRenderShell(t *testing.T) {
-	m := New("/tmp/notes")
+	root := notesFixture(t)
+	m := New(root)
 	m.width, m.height = 100, 30
 
 	out := m.render()
@@ -21,8 +25,9 @@ func TestRenderShell(t *testing.T) {
 		t.Fatalf("rendered height = %d, want 30", got)
 	}
 	for _, want := range []string{
-		"mdui — /tmp/notes",
-		"tree",
+		"mdui — " + root,
+		"• alpha.md",
+		"• beta.md",
 		"no file selected",
 		"tab focus · q quit",
 		"│",
@@ -101,4 +106,74 @@ func TestViewIsAltScreen(t *testing.T) {
 	if v.WindowTitle != "mdui — /tmp/notes" {
 		t.Fatalf("window title = %q", v.WindowTitle)
 	}
+}
+
+func TestTreeKeysUpdateStatusBar(t *testing.T) {
+	root := notesFixture(t)
+	alpha := filepath.Join(root, "alpha.md")
+	beta := filepath.Join(root, "beta.md")
+
+	m := New(root)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 140, Height: 30})
+	m = next.(Model)
+
+	m = pressKey(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
+	if m.selected != alpha {
+		t.Fatalf("selected = %q, want %q", m.selected, alpha)
+	}
+	if status := m.renderStatus(200); !strings.Contains(status, strconv.Quote(alpha)) {
+		t.Fatalf("status bar does not show selected path:\n%s", status)
+	}
+
+	m = pressKey(t, m, tea.KeyPressMsg{Code: 'j', Text: "j"})
+	if m.selected != beta {
+		t.Fatalf("after j selected = %q, want %q", m.selected, beta)
+	}
+	if status := m.renderStatus(200); !strings.Contains(status, strconv.Quote(beta)) {
+		t.Fatalf("status bar did not follow cursor:\n%s", status)
+	}
+
+	// Tree keys are ignored while the viewer is focused.
+	m = pressKey(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
+	m = pressKey(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
+	if m.selected != beta {
+		t.Fatalf("tree key changed selection while viewer focused: %q", m.selected)
+	}
+	if m.focus != FocusViewer {
+		t.Fatalf("focus = %v, want viewer", m.focus)
+	}
+}
+
+func pressKey(t *testing.T, m Model, key tea.KeyPressMsg) Model {
+	t.Helper()
+	next, cmd := m.Update(key)
+	updated, ok := next.(Model)
+	if !ok {
+		t.Fatalf("Update returned %T, want app.Model", next)
+	}
+	if cmd == nil {
+		return updated
+	}
+
+	msg := cmd()
+	if msg == nil {
+		return updated
+	}
+	next, _ = updated.Update(msg)
+	updated, ok = next.(Model)
+	if !ok {
+		t.Fatalf("Update(%T) returned %T, want app.Model", msg, next)
+	}
+	return updated
+}
+
+func notesFixture(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	for _, name := range []string{"alpha.md", "beta.md"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("# "+name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
 }

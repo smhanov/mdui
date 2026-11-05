@@ -3,6 +3,7 @@ package app
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -39,7 +40,8 @@ const (
 )
 
 // Model is the root application model. It owns the window size, the split
-// ratio, focus, and the chrome; the tree and viewer children only render.
+// ratio, focus, and the chrome; the tree and viewer children own their
+// content.
 type Model struct {
 	root   string
 	width  int
@@ -47,8 +49,9 @@ type Model struct {
 	ratio  float64
 	focus  Focus
 
-	tree   tree.Model
-	viewer viewer.Model
+	selected string
+	tree     tree.Model
+	viewer   viewer.Model
 }
 
 // New returns a root model scoped to root.
@@ -68,12 +71,13 @@ func (m Model) Init() tea.Cmd {
 }
 
 // Update implements tea.Model. Layout-level messages are handled here; pane
-// content messages will be routed in later milestones.
+// content messages are routed to the child that owns them.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.tree.SetHeight(m.paneHeight())
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -84,7 +88,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.focus = FocusTree
 			}
+			return m, nil
 		}
+		if m.focus == FocusTree {
+			var cmd tea.Cmd
+			m.tree, cmd = m.tree.Update(msg)
+			return m, cmd
+		}
+	case tree.SelectionMsg:
+		m.selected = msg.Path
 	}
 	return m, nil
 }
@@ -108,12 +120,10 @@ func (m Model) render() string {
 	}
 
 	innerW := m.width - style.Frame.GetHorizontalFrameSize()
-	innerH := m.height - style.Frame.GetVerticalFrameSize()
-	panesH := innerH - titleRows - statusRows
+	panesH := m.paneHeight()
 	if innerW < 1 || panesH < 1 {
 		return m.renderTooSmall()
 	}
-
 	treeW, divW, viewerW := SplitWidths(innerW, m.ratio)
 	body := lipgloss.JoinHorizontal(
 		lipgloss.Top,
@@ -138,6 +148,11 @@ func (m Model) tooSmall() bool {
 	return m.width < minTermW || m.height < minTermH
 }
 
+// paneHeight is the number of rows available to the tree and viewer panes.
+func (m Model) paneHeight() int {
+	return m.height - style.Frame.GetVerticalFrameSize() - titleRows - statusRows
+}
+
 func (m Model) degraded() bool {
 	return !m.tooSmall() && (m.width < comfortW || m.height < comfortH)
 }
@@ -152,6 +167,9 @@ func (m Model) renderTitle(width int) string {
 
 func (m Model) renderStatus(width int) string {
 	leftText := "no file selected"
+	if m.selected != "" {
+		leftText = strconv.Quote(m.selected)
+	}
 	rightText := "tab focus · q quit"
 	if m.degraded() {
 		rightText = "resize to ≥80×24"

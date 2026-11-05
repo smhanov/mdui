@@ -49,6 +49,27 @@ var (
 	// TooSmall centres the refusal message on terminals below the minimum size.
 	TooSmall = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(muted))
+
+	// TreeDir emphasises directory rows.
+	TreeDir = lipgloss.NewStyle().
+		Bold(true)
+
+	// TreeFile is the default style for markdown file rows.
+	TreeFile = lipgloss.NewStyle()
+
+	// TreeWarning colours inline scan and symlink warnings.
+	TreeWarning = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("3"))
+
+	// TreeSelected is the full-row cursor highlight.
+	TreeSelected = lipgloss.NewStyle().
+			Reverse(true).
+			Bold(true)
+
+	// TreeEmpty is the muted placeholder shown for a folder with no markdown.
+	TreeEmpty = lipgloss.NewStyle().
+			Italic(true).
+			Foreground(lipgloss.Color(muted))
 )
 
 // Truncate shortens s to at most width terminal cells, appending an ellipsis
