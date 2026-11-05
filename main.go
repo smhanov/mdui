@@ -16,10 +16,27 @@ import (
 )
 
 func main() {
+	var (
+		styleFlag   = flag.String("style", "", "document style: auto, dark, light, a name, or a JSON path")
+		mouseFlag   = flag.Bool("mouse", false, "enable mouse capture (default: config)")
+		noMouseFlag = flag.Bool("no-mouse", false, "disable mouse capture")
+		widthFlag   = flag.Int("width", -1, "reflow width in columns; 0 uses the pane width")
+		emojiFlag   = flag.Bool("emoji", false, "render :emoji: shortcodes as unicode")
+		noEmojiFlag = flag.Bool("no-emoji", false, "leave :emoji: shortcodes as written")
+		hiddenFlag  = flag.Bool("hidden", false, "show dot-prefixed entries")
+		sortFlag    = flag.String("sort", "", "tree order: name, mtime, or size")
+	)
+
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "usage: mdui [folder]\n\n")
-		fmt.Fprintln(flag.CommandLine.Output(), "Open a folder of markdown files in a two-pane terminal viewer.")
-		fmt.Fprintln(flag.CommandLine.Output(), "The folder defaults to the current directory.")
+		out := flag.CommandLine.Output()
+		fmt.Fprintf(out, "usage: mdui [flags] [folder]\n\n")
+		fmt.Fprintln(out, "Open a folder of markdown files in a two-pane terminal viewer.")
+		fmt.Fprintln(out, "The folder defaults to the current directory.")
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, "Flags override ~/.config/mdui/config.toml. Press ? in the viewer")
+		fmt.Fprintln(out, "for the full key list.")
+		fmt.Fprintln(out)
+		flag.PrintDefaults()
 	}
 	flag.Parse()
 
@@ -42,16 +59,78 @@ func main() {
 		root = abs
 	}
 
-	state := config.LoadDefault()
+	cfg := loadConfig()
+	set := make(map[string]bool)
+	flag.Visit(func(f *flag.Flag) { set[f.Name] = true })
+
+	if set["mouse"] && set["no-mouse"] {
+		fmt.Fprintln(os.Stderr, "mdui: use only one of --mouse and --no-mouse")
+		os.Exit(2)
+	}
+	if set["mouse"] {
+		cfg.Mouse = *mouseFlag
+	}
+	if set["no-mouse"] && *noMouseFlag {
+		cfg.Mouse = false
+	}
+	if set["width"] {
+		cfg.WrapWidth = max(0, *widthFlag)
+	}
+	if set["emoji"] {
+		cfg.Emoji = *emojiFlag
+	}
+	if set["no-emoji"] && *noEmojiFlag {
+		cfg.Emoji = false
+	}
+	if set["hidden"] {
+		cfg.HiddenFiles = *hiddenFlag
+	}
+	if set["sort"] && *sortFlag != "" {
+		cfg.SortBy = *sortFlag
+	}
+
+	stylesDir, err := config.StylesPath()
+	if err != nil {
+		stylesDir = ""
+	}
+	cliStyle := ""
+	if set["style"] {
+		cliStyle = *styleFlag
+	}
+	docStyle := config.ResolveStyle(cliStyle, cfg.Style, os.Getenv, render.BackgroundIsDark, stylesDir)
+
+	statePath, err := config.StatePath()
+	if err != nil {
+		statePath = ""
+	}
+	ratio := config.StartupTreeRatio(cfg, statePath)
+
 	model := app.New(
 		root,
-		app.WithStyle(render.DefaultStyle()),
-		app.WithTreeRatio(state.TreeRatio),
+		app.WithStyle(docStyle),
+		app.WithConfig(cfg),
+		app.WithTreeRatio(ratio),
+		app.WithStatePath(statePath),
 	)
 	if _, err := tea.NewProgram(model).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "mdui: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// loadConfig creates the first-run config directory and falls back to the
+// built-in defaults when the config cannot be read or written.
+func loadConfig() config.Config {
+	path, err := config.ConfigPath()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mdui: config: %v\n", err)
+		return config.DefaultConfig()
+	}
+	cfg, err := config.LoadOrCreate(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mdui: config: %v\n", err)
+	}
+	return cfg
 }
 
 // validateDir makes sure path exists, is a directory, and can be listed before

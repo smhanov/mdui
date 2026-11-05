@@ -36,17 +36,55 @@ type Model struct {
 	offset     int
 	height     int
 	showHidden bool
+	sortBy     string
+	hideEmpty  bool
 	scan       Scanner
+}
+
+// Option configures a tree at construction time.
+type Option func(*Model)
+
+// WithHidden shows dot-prefixed entries from the first scan.
+func WithHidden(hidden bool) Option {
+	return func(m *Model) {
+		m.showHidden = hidden
+	}
+}
+
+// WithSortBy selects the file order: "name", "mtime", or "size". Directories
+// always stay first and are ordered by name.
+func WithSortBy(mode string) Option {
+	return func(m *Model) {
+		switch strings.ToLower(strings.TrimSpace(mode)) {
+		case "mtime":
+			m.sortBy = "mtime"
+		case "size":
+			m.sortBy = "size"
+		default:
+			m.sortBy = "name"
+		}
+	}
+}
+
+// WithHideEmpty hides directories that contain no markdown anywhere beneath
+// them.
+func WithHideEmpty(hide bool) Option {
+	return func(m *Model) {
+		m.hideEmpty = hide
+	}
 }
 
 // New scans the root's first level and returns a tree ready to render.
 // Subdirectories stay unloaded until they are expanded.
-func New(root string) Model {
-	return newModel(root, ScanDir)
+func New(root string, opts ...Option) Model {
+	return newModel(root, ScanDir, opts...)
 }
 
-func newModel(root string, scan Scanner) Model {
-	m := Model{scan: scan}
+func newModel(root string, scan Scanner, opts ...Option) Model {
+	m := Model{scan: scan, sortBy: "name"}
+	for _, opt := range opts {
+		opt(&m)
+	}
 	m.root = &Node{
 		Name:     rootLabel(root),
 		Path:     root,
@@ -285,7 +323,7 @@ func (m *Model) load(node *Node) {
 	}
 
 	node.Err = ""
-	m.attach(node, children)
+	m.attach(node, m.refine(children))
 	node.Loaded = true
 }
 
@@ -296,7 +334,24 @@ func (m *Model) readChildren(node *Node) {
 		return
 	}
 	node.Err = ""
-	m.attach(node, children)
+	m.attach(node, m.refine(children))
+}
+
+// refine applies the configured empty-directory filter and sort order to a
+// freshly scanned level.
+func (m *Model) refine(nodes []*Node) []*Node {
+	if m.hideEmpty {
+		filtered := nodes[:0]
+		for _, node := range nodes {
+			if node.IsDir && !hasMarkdownBeneath(node.Path, m.showHidden) {
+				continue
+			}
+			filtered = append(filtered, node)
+		}
+		nodes = filtered
+	}
+	sortNodesBy(nodes, m.sortBy)
+	return nodes
 }
 
 func (m *Model) attach(node *Node, children []*Node) {
@@ -358,7 +413,7 @@ func (m *Model) reload(node *Node) {
 	}
 
 	node.Err = ""
-	m.attach(node, children)
+	m.attach(node, m.refine(children))
 	for _, child := range children {
 		m.reload(child)
 	}

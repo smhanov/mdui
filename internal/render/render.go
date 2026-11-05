@@ -12,6 +12,8 @@ import (
 	glamour "charm.land/glamour/v2"
 	"charm.land/glamour/v2/styles"
 	"charm.land/lipgloss/v2"
+
+	"mdui/internal/style"
 )
 
 const (
@@ -25,40 +27,60 @@ const (
 
 var defaultCache = NewCache(CacheSize)
 
-// Style is a Glamour style: a built-in name such as "dark" or "light", or a
-// path to a JSON stylesheet. It is an alias so callers can pass plain strings.
+// Style is a Glamour style: a built-in name such as "dark", an embedded mdui
+// stylesheet, or a path to a JSON stylesheet. It is an alias so callers can
+// pass plain strings.
 type Style = string
 
 const (
-	// Dark is Glamour's dark-terminal stylesheet.
+	// Dark is Glamour's built-in dark-terminal stylesheet.
 	Dark Style = "dark"
-	// Light is Glamour's light-terminal stylesheet.
+	// Light is Glamour's built-in light-terminal stylesheet.
 	Light Style = "light"
+	// MduiDark is mdui's tuned dark stylesheet.
+	MduiDark Style = "mdui-dark"
+	// MduiLight is mdui's tuned light stylesheet.
+	MduiLight Style = "mdui-light"
 )
 
-// ResolveStyle picks the document style in priority order: the GLAMOUR_STYLE
-// environment variable, then the terminal background, then dark. The value
-// "auto" in GLAMOUR_STYLE behaves as if the variable were unset. A nil
-// hasDark function also falls back to dark.
+// Options carries the renderer settings that are not already expressed by the
+// style name or the target width.
+type Options struct {
+	Style Style
+	Emoji bool
+}
+
+// ResolveStyle picks the document style from the environment and terminal
+// background: GLAMOUR_STYLE first, then auto-detection with mdui's embedded
+// dark/light stylesheets. The value "auto" behaves as if the variable were
+// unset. A nil hasDark function also falls back to dark.
 func ResolveStyle(getenv func(string) string, hasDark func() bool) Style {
+	return ResolveStylePrecedence("", "", getenv, hasDark)
+}
+
+// ResolveStylePrecedence applies the full startup precedence: CLI flag, then
+// config file, then GLAMOUR_STYLE, then terminal background detection. An
+// "auto" or empty value at any level falls through to the next.
+func ResolveStylePrecedence(cli, config Style, getenv func(string) string, hasDark func() bool) Style {
+	for _, candidate := range []Style{cli, config} {
+		if value := strings.TrimSpace(candidate); value != "" && !strings.EqualFold(value, "auto") {
+			return Style(value)
+		}
+	}
 	if getenv != nil {
 		if value := strings.TrimSpace(getenv("GLAMOUR_STYLE")); value != "" && !strings.EqualFold(value, "auto") {
 			return Style(value)
 		}
 	}
 	if hasDark != nil && !hasDark() {
-		return Light
+		return MduiLight
 	}
-	return Dark
+	return MduiDark
 }
 
-// DefaultStyle resolves the startup style against the real environment and
-// terminal. It queries the terminal, so call it before starting the TUI rather
-// than from an Update method.
-func DefaultStyle() Style {
-	return ResolveStyle(os.Getenv, func() bool {
-		return lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
-	})
+// BackgroundIsDark reports whether the terminal has a dark background.
+func BackgroundIsDark() bool {
+	return lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
 }
 
 // RenderedMsg is the result of a render, raw-load, or size-check job. RawOnly
@@ -77,11 +99,17 @@ type RenderedMsg struct {
 	Err      error
 }
 
-// NewCmd renders the markdown file at path asynchronously. It stats the file
-// before reading so files above MaxRenderBytes come back as Large without
-// loading the document. Results for the same path, mtime, width, and style are
-// served from the render cache.
+// NewCmd renders the markdown file at path asynchronously with default
+// options. It stats the file before reading so files above MaxRenderBytes come
+// back as Large without loading the document.
 func NewCmd(reqID uint64, path string, width int, style Style) tea.Cmd {
+	return NewCmdWith(reqID, path, width, Options{Style: style})
+}
+
+// NewCmdWith renders the markdown file at path asynchronously. Results for the
+// same path, mtime, width, style, and emoji setting are served from the render
+// cache.
+func NewCmdWith(reqID uint64, path string, width int, opts Options) tea.Cmd {
 	return func() tea.Msg {
 		absPath, err := filepath.Abs(path)
 		if err != nil {
@@ -94,7 +122,7 @@ func NewCmd(reqID uint64, path string, width int, style Style) tea.Cmd {
 				ReqID: reqID,
 				Path:  path,
 				Width: width,
-				Style: style,
+				Style: opts.Style,
 				Err:   err,
 			}
 		}
@@ -103,7 +131,7 @@ func NewCmd(reqID uint64, path string, width int, style Style) tea.Cmd {
 				ReqID: reqID,
 				Path:  path,
 				Width: width,
-				Style: style,
+				Style: opts.Style,
 				Size:  info.Size(),
 				Large: true,
 			}
@@ -115,7 +143,7 @@ func NewCmd(reqID uint64, path string, width int, style Style) tea.Cmd {
 				ReqID: reqID,
 				Path:  path,
 				Width: width,
-				Style: style,
+				Style: opts.Style,
 				Size:  info.Size(),
 				Err:   err,
 			}
@@ -125,14 +153,15 @@ func NewCmd(reqID uint64, path string, width int, style Style) tea.Cmd {
 			Path:    absPath,
 			ModTime: info.ModTime().UnixNano(),
 			Width:   width,
-			Style:   style,
+			Style:   opts.Style,
+			Emoji:   opts.Emoji,
 		}
-		rendered, err := renderDocument(key, data, width, style)
+		rendered, err := renderDocument(key, data, width, opts)
 		return RenderedMsg{
 			ReqID:    reqID,
 			Path:     path,
 			Width:    width,
-			Style:    style,
+			Style:    opts.Style,
 			Rendered: rendered,
 			Raw:      string(data),
 			Size:     info.Size(),
@@ -141,22 +170,21 @@ func NewCmd(reqID uint64, path string, width int, style Style) tea.Cmd {
 	}
 }
 
-// BytesCmd renders an embedded document, such as the viewer's welcome note,
-// through the same pipeline and cache as files. name is only used as the cache
-// identity.
-func BytesCmd(reqID uint64, name string, data []byte, width int, style Style) tea.Cmd {
+// BytesCmdWith is BytesCmd with explicit renderer options.
+func BytesCmdWith(reqID uint64, name string, data []byte, width int, opts Options) tea.Cmd {
 	return func() tea.Msg {
 		key := Key{
 			Path:  name,
 			Width: width,
-			Style: style,
+			Style: opts.Style,
+			Emoji: opts.Emoji,
 		}
-		rendered, err := renderDocument(key, data, width, style)
+		rendered, err := renderDocument(key, data, width, opts)
 		return RenderedMsg{
 			ReqID:    reqID,
 			Path:     name,
 			Width:    width,
-			Style:    style,
+			Style:    opts.Style,
 			Rendered: rendered,
 			Raw:      string(data),
 			Size:     int64(len(data)),
@@ -181,12 +209,18 @@ func RawCmd(reqID uint64, path string) tea.Cmd {
 	}
 }
 
-func renderDocument(key Key, data []byte, width int, style Style) (string, error) {
+// RenderBytes renders an in-memory document synchronously. It is used for the
+// help overlay, which is small and rendered once when opened.
+func RenderBytes(data []byte, width int, opts Options) (string, error) {
+	return renderMarkdown(data, width, opts)
+}
+
+func renderDocument(key Key, data []byte, width int, opts Options) (string, error) {
 	if cached, ok := defaultCache.Get(key); ok {
 		return cached, nil
 	}
 
-	rendered, err := renderMarkdown(data, width, style)
+	rendered, err := renderMarkdown(data, width, opts)
 	if err != nil {
 		return "", err
 	}
@@ -194,18 +228,23 @@ func renderDocument(key Key, data []byte, width int, style Style) (string, error
 	return rendered, nil
 }
 
-func renderMarkdown(data []byte, width int, style Style) (string, error) {
+func renderMarkdown(data []byte, width int, opts Options) (string, error) {
 	if width < 1 {
 		width = 1
 	}
 
-	renderer, err := glamour.NewTermRenderer(
-		styleOption(style),
+	rendererOpts := []glamour.TermRendererOption{
+		styleOption(opts.Style),
 		glamour.WithWordWrap(width),
 		glamour.WithInlineTableLinks(false),
 		glamour.WithTableWrap(true),
 		glamour.WithChromaFormatter("terminal16m"),
-	)
+	}
+	if opts.Emoji {
+		rendererOpts = append(rendererOpts, glamour.WithEmoji())
+	}
+
+	renderer, err := glamour.NewTermRenderer(rendererOpts...)
 	if err != nil {
 		return "", fmt.Errorf("render: %w", err)
 	}
@@ -217,10 +256,13 @@ func renderMarkdown(data []byte, width int, style Style) (string, error) {
 	return strings.Trim(rendered, "\n"), nil
 }
 
-// styleOption uses Glamour's built-in stylesheet loader for standard names and
-// the path loader for user stylesheets.
-func styleOption(style Style) glamour.TermRendererOption {
-	name := string(style)
+// styleOption resolves embedded mdui stylesheets first, then Glamour's
+// built-in styles, then arbitrary stylesheet paths.
+func styleOption(docStyle Style) glamour.TermRendererOption {
+	name := string(docStyle)
+	if data, ok := style.LookupStylesheet(name); ok {
+		return glamour.WithStylesFromJSONBytes(data)
+	}
 	if _, ok := styles.DefaultStyles[name]; ok {
 		return glamour.WithStandardStyle(name)
 	}

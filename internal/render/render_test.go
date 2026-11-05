@@ -22,12 +22,12 @@ func TestResolveStyle(t *testing.T) {
 		want       Style
 		wantDetect bool
 	}{
-		{name: "dark terminal", dark: true, want: Dark, wantDetect: true},
-		{name: "light terminal", dark: false, want: Light, wantDetect: true},
+		{name: "dark terminal", dark: true, want: MduiDark, wantDetect: true},
+		{name: "light terminal", dark: false, want: MduiLight, wantDetect: true},
 		{name: "env overrides light", env: "dracula", dark: false, want: "dracula"},
 		{name: "env path overrides dark", env: "/tmp/theme.json", dark: true, want: "/tmp/theme.json"},
-		{name: "auto detects", env: "auto", dark: false, want: Light, wantDetect: true},
-		{name: "blank env detects", env: "   ", dark: true, want: Dark, wantDetect: true},
+		{name: "auto detects", env: "auto", dark: false, want: MduiLight, wantDetect: true},
+		{name: "blank env detects", env: "   ", dark: true, want: MduiDark, wantDetect: true},
 	}
 
 	for _, tt := range tests {

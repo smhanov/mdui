@@ -3,6 +3,7 @@ package app
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -40,6 +41,10 @@ const (
 
 	// treeWheelRows is how many rows one wheel notch moves the tree cursor.
 	treeWheelRows = 3
+
+	// doubleClickWindow is how long a second click on the same tree row still
+	// counts as a double-click.
+	doubleClickWindow = 400 * time.Millisecond
 )
 
 // Focus identifies which pane receives routed input.
@@ -66,12 +71,26 @@ type Model struct {
 	tree      tree.Model
 	viewer    viewer.Model
 	statePath string
+	stats     viewer.StatsMsg
 
+	docStyle render.Style
+	emoji    bool
+
+	overlay         overlayKind
+	helpBody        string
+	helpWidth       int
+	mouse           bool
 	dragging        bool
 	dragSeq         uint64
 	dragTickPending bool
 	lastTreeW       int
 	clampRatio      bool
+
+	lastClickValid bool
+	lastClickIndex int
+	lastClickPath  string
+	lastClickTime  time.Time
+	now            func() time.Time
 }
 
 type options struct {
@@ -80,6 +99,13 @@ type options struct {
 	ratioSet     bool
 	statePath    string
 	statePathSet bool
+	emoji        bool
+	wrapWidth    int
+	hiddenFiles  bool
+	hideEmpty    bool
+	sortBy       string
+	mouse        bool
+	now          func() time.Time
 }
 
 // dragTickMsg is delivered by the debounce timer during a splitter drag. Seq
@@ -93,10 +119,10 @@ type dragTickMsg struct {
 type Option func(*options)
 
 // WithStyle selects the Glamour style used by the viewer. Styles are resolved
-// once at startup; an empty style means dark.
-func WithStyle(style render.Style) Option {
+// once at startup; an empty style means mdui's dark stylesheet.
+func WithStyle(docStyle render.Style) Option {
 	return func(c *options) {
-		c.docStyle = style
+		c.docStyle = docStyle
 	}
 }
 
@@ -118,9 +144,35 @@ func WithStatePath(path string) Option {
 	}
 }
 
+// WithConfig applies the stable configuration file options that affect the
+// running UI.
+func WithConfig(cfg config.Config) Option {
+	return func(c *options) {
+		c.emoji = cfg.Emoji
+		c.wrapWidth = cfg.WrapWidth
+		c.hiddenFiles = cfg.HiddenFiles
+		c.hideEmpty = cfg.HideEmptyDirs
+		c.sortBy = cfg.SortBy
+		c.mouse = cfg.Mouse
+	}
+}
+
+// WithClock injects the time source used for double-click detection.
+func WithClock(now func() time.Time) Option {
+	return func(c *options) {
+		c.now = now
+	}
+}
+
 // New returns a root model scoped to root.
 func New(root string, opts ...Option) Model {
-	cfg := options{docStyle: render.Dark}
+	cfg := options{
+		docStyle: render.MduiDark,
+		emoji:    true,
+		mouse:    true,
+		sortBy:   "name",
+		now:      time.Now,
+	}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
@@ -131,6 +183,16 @@ func New(root string, opts ...Option) Model {
 		focus:      FocusTree,
 		lastTreeW:  -1,
 		clampRatio: true,
+		docStyle:   cfg.docStyle,
+		emoji:      cfg.emoji,
+		mouse:      cfg.mouse,
+		now:        cfg.now,
+	}
+	if m.docStyle == "" {
+		m.docStyle = render.MduiDark
+	}
+	if m.now == nil {
+		m.now = time.Now
 	}
 	if cfg.ratioSet {
 		m.ratio = cfg.treeRatio
@@ -141,8 +203,16 @@ func New(root string, opts ...Option) Model {
 		m.statePath = path
 	}
 
-	m.tree = tree.New(root)
-	m.viewer = viewer.New(cfg.docStyle)
+	m.tree = tree.New(root,
+		tree.WithHidden(cfg.hiddenFiles),
+		tree.WithHideEmpty(cfg.hideEmpty),
+		tree.WithSortBy(cfg.sortBy),
+	)
+	m.viewer = viewer.NewWithOptions(viewer.Options{
+		Style:     m.docStyle,
+		Emoji:     cfg.emoji,
+		WrapWidth: cfg.wrapWidth,
+	})
 	return m
 }
 
@@ -164,34 +234,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.clampRatio = false
 			}
 		}
-		m.tree.SetHeight(m.paneHeight())
-		innerW := m.innerWidth()
-		treeW, _, viewerW := SplitWidths(innerW, m.ratio)
-		m.lastTreeW = treeW
-		return m, m.viewer.SetSize(viewerW, m.paneHeight())
+		if m.overlay == overlayHelp {
+			m = m.openHelp()
+		}
+		return m, m.resizePanes()
 	case tea.KeyPressMsg:
-		switch msg.String() {
-		case "q", "ctrl+c":
-			m.saveState()
-			return m, tea.Quit
-		case "tab", "shift+tab":
-			if m.focus == FocusTree {
-				m.focus = FocusViewer
-			} else {
-				m.focus = FocusTree
-			}
-			return m, nil
-		case "H", "L", "=":
-			return m.handleSplitKey(msg.String())
-		}
-		if m.focus == FocusTree {
-			var cmd tea.Cmd
-			m.tree, cmd = m.tree.Update(msg)
-			return m, cmd
-		}
-		var cmd tea.Cmd
-		m.viewer, cmd = m.viewer.Update(msg)
-		return m, cmd
+		return m.handleKey(msg)
 	case tea.MouseClickMsg:
 		return m.handleMouseClick(msg)
 	case tea.MouseMotionMsg:
@@ -200,6 +248,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleMouseRelease(msg)
 	case tea.MouseWheelMsg:
 		return m.handleMouseWheel(msg)
+	case viewer.StatsMsg:
+		if msg.Path == m.selected {
+			m.stats = msg
+		}
+		return m, nil
 	case dragTickMsg:
 		if !m.dragging || msg.Seq != m.dragSeq {
 			return m, nil
@@ -208,6 +261,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.renderSplitIfNeeded()
 	case tree.SelectionMsg:
 		m.selected = msg.Path
+		m.stats = viewer.StatsMsg{Path: msg.Path}
 		return m, m.viewer.Open(msg.Path)
 	default:
 		var cmd tea.Cmd
@@ -216,12 +270,55 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
+func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.overlay != overlayNone {
+		switch msg.String() {
+		case "?", "esc":
+			m.overlay = overlayNone
+			m.helpBody = ""
+		}
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "q", "ctrl+c":
+		m.saveState()
+		return m, tea.Quit
+	case "?":
+		m = m.openHelp()
+		return m, nil
+	case "m":
+		return m.toggleMouse()
+	case "tab", "shift+tab":
+		if m.focus == FocusTree {
+			m.focus = FocusViewer
+		} else {
+			m.focus = FocusTree
+		}
+		return m, nil
+	case "H", "L", "=":
+		return m.handleSplitKey(msg.String())
+	}
+	if m.focus == FocusTree {
+		var cmd tea.Cmd
+		m.tree, cmd = m.tree.Update(msg)
+		return m, cmd
+	}
+	var cmd tea.Cmd
+	m.viewer, cmd = m.viewer.Update(msg)
+	return m, cmd
+}
+
 // View implements tea.Model.
 func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
 	v.WindowTitle = "mdui — " + m.root
-	v.MouseMode = tea.MouseModeCellMotion
+	if m.mouse {
+		v.MouseMode = tea.MouseModeCellMotion
+	} else {
+		v.MouseMode = tea.MouseModeNone
+	}
 	return v
 }
 
@@ -248,16 +345,21 @@ func (m Model) render() string {
 		m.viewer.View(viewerW, panesH),
 	)
 
-	content := strings.Join([]string{
-		m.renderTitle(innerW),
-		body,
-		m.renderStatus(innerW),
-	}, "\n")
+	rows := []string{m.renderTitle(innerW), body}
+	if !m.mouse {
+		rows = append(rows, m.renderMouseHint(innerW))
+	}
+	rows = append(rows, m.renderStatus(innerW))
 
-	return style.Frame.
+	base := style.Frame.
 		Width(m.width).
 		Height(m.height).
-		Render(content)
+		Render(strings.Join(rows, "\n"))
+
+	if m.overlay == overlayHelp && m.helpBody != "" {
+		return m.renderHelpOverlay(base)
+	}
+	return base
 }
 
 func (m Model) tooSmall() bool {
@@ -323,6 +425,16 @@ func (m Model) regionAt(x, y int) paneRegion {
 	}
 }
 
+// resizePanes pushes the current pane dimensions into the children after a
+// window resize or a mouse-capture change.
+func (m *Model) resizePanes() tea.Cmd {
+	m.tree.SetHeight(m.paneHeight())
+	innerW := m.innerWidth()
+	treeW, _, viewerW := SplitWidths(innerW, m.ratio)
+	m.lastTreeW = treeW
+	return m.viewer.SetSize(viewerW, m.paneHeight())
+}
+
 // handleSplitKey applies the keyboard splitter controls.
 func (m Model) handleSplitKey(key string) (tea.Model, tea.Cmd) {
 	innerW := m.innerWidth()
@@ -377,22 +489,68 @@ func (m *Model) scheduleDragTick() tea.Cmd {
 }
 
 func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	mouse := msg.Mouse()
-	if mouse.Button != tea.MouseLeft || mouse.Mod.Contains(tea.ModShift) {
+	if !m.mouse || m.overlay != overlayNone {
 		return m, nil
 	}
-	if m.regionAt(mouse.X, mouse.Y) != regionDivider {
+	mouse := msg.Mouse()
+	if mouse.Button != tea.MouseLeft || mouse.Mod.Contains(tea.ModShift) {
+		m.clearClick()
 		return m, nil
 	}
 
-	m.dragging = true
-	m.dragSeq++
-	m.dragTickPending = false
-	return m, nil
+	switch m.regionAt(mouse.X, mouse.Y) {
+	case regionDivider:
+		m.clearClick()
+		m.dragging = true
+		m.dragSeq++
+		m.dragTickPending = false
+		return m, nil
+	case regionTree:
+		return m.handleTreeClick(mouse.X, mouse.Y)
+	default:
+		m.clearClick()
+		return m, nil
+	}
+}
+
+func (m Model) handleTreeClick(x, y int) (tea.Model, tea.Cmd) {
+	row, index, ok := m.tree.RowAt(y-m.bodyTop(), m.paneHeight())
+	if !ok || x < m.frameLeft() {
+		m.clearClick()
+		return m, nil
+	}
+
+	now := m.now()
+	wasDouble := m.lastClickValid &&
+		m.lastClickIndex == index &&
+		m.lastClickPath == row.Path &&
+		now.Sub(m.lastClickTime) <= doubleClickWindow
+
+	m.lastClickValid = true
+	m.lastClickIndex = index
+	m.lastClickPath = row.Path
+	m.lastClickTime = now
+
+	if wasDouble {
+		m.lastClickValid = false
+		if row.IsDir {
+			return m, m.tree.DescendRow(index)
+		}
+		return m, m.tree.SelectRow(index)
+	}
+
+	if row.IsDir {
+		return m, m.tree.ToggleRow(index)
+	}
+	return m, m.tree.SelectRow(index)
+}
+
+func (m *Model) clearClick() {
+	m.lastClickValid = false
 }
 
 func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
-	if !m.dragging {
+	if !m.mouse || m.overlay != overlayNone || !m.dragging {
 		return m, nil
 	}
 	innerW := m.innerWidth()
@@ -416,6 +574,9 @@ func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) 
 }
 
 func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
+	if !m.mouse || m.overlay != overlayNone {
+		return m, nil
+	}
 	mouse := msg.Mouse()
 	if mouse.Mod.Contains(tea.ModShift) {
 		return m, nil
@@ -437,6 +598,17 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// toggleMouse flips terminal mouse capture and resizes the panes to make room
+// for the hint bar.
+func (m Model) toggleMouse() (tea.Model, tea.Cmd) {
+	m.mouse = !m.mouse
+	if !m.mouse {
+		m.dragging = false
+		m.dragTickPending = false
+	}
+	return m, m.resizePanes()
+}
+
 // saveState atomically writes the split ratio. It runs on drag release and
 // quit, never on individual motion events.
 func (m Model) saveState() {
@@ -452,7 +624,11 @@ func (m Model) saveState() {
 
 // paneHeight is the number of rows available to the tree and viewer panes.
 func (m Model) paneHeight() int {
-	return m.height - style.Frame.GetVerticalFrameSize() - titleRows - statusRows
+	rows := titleRows + statusRows
+	if !m.mouse {
+		rows++
+	}
+	return m.height - style.Frame.GetVerticalFrameSize() - rows
 }
 
 func (m Model) degraded() bool {
@@ -468,14 +644,8 @@ func (m Model) renderTitle(width int) string {
 }
 
 func (m Model) renderStatus(width int) string {
-	leftText := "no file selected"
-	if m.selected != "" {
-		leftText = strconv.Quote(m.selected)
-	}
-	rightText := "tab focus · q quit"
-	if m.degraded() {
-		rightText = "resize to ≥80×24"
-	}
+	leftText := m.statusLeft()
+	rightText := m.statusRight()
 
 	left := style.StatusLeft.Render(leftText)
 	right := style.StatusRight.Render(rightText)
@@ -499,6 +669,60 @@ func (m Model) renderStatus(width int) string {
 	}
 	b.WriteString(right)
 	return b.String()
+}
+
+func (m Model) statusLeft() string {
+	if m.selected == "" {
+		return "no file selected"
+	}
+
+	label := m.selectedLabel()
+	if m.stats.Path == m.selected && m.stats.Ready {
+		label = fmt.Sprintf("%s · %d %s · %d min",
+			label, m.stats.Words, plural(m.stats.Words, "word", "words"), m.stats.ReadingMinutes)
+	}
+	if warning := m.viewer.Warning(); warning != "" {
+		label = "⚠ " + warning + " · " + label
+	}
+	return label
+}
+
+func (m Model) statusRight() string {
+	if m.degraded() {
+		return "resize to ≥80×24"
+	}
+	hint := "? help · q quit"
+	if m.stats.Path == m.selected && m.stats.Ready && m.selected != "" {
+		hint = fmt.Sprintf("%d%% · %s", m.stats.ScrollPct, hint)
+	}
+	return hint
+}
+
+func (m Model) selectedLabel() string {
+	rel, err := filepath.Rel(m.root, m.selected)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		rel = m.selected
+	}
+	if strings.ContainsAny(rel, " \t\n\"") {
+		return strconv.Quote(rel)
+	}
+	return rel
+}
+
+func (m Model) renderMouseHint(width int) string {
+	const text = "mouse off — native selection enabled, press m to re-enable"
+	line := " " + style.Truncate(text, max(0, width-2)) + " "
+	if pad := width - lipgloss.Width(line); pad > 0 {
+		line += strings.Repeat(" ", pad)
+	}
+	return style.MouseHint.Render(line)
+}
+
+func plural(n int, singular, pluralForm string) string {
+	if n == 1 {
+		return singular
+	}
+	return pluralForm
 }
 
 // renderDivider draws the one-column rule between the panes. The glyph and

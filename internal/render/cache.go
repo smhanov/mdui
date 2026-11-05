@@ -12,6 +12,7 @@ type Key struct {
 	ModTime int64
 	Width   int
 	Style   Style
+	Emoji   bool
 }
 
 // Cache is a small, concurrency-safe LRU of rendered markdown. Render jobs run

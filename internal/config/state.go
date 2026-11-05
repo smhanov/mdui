@@ -1,4 +1,5 @@
-// Package config persists mdui's session state between launches.
+// Package config persists mdui's preferences and session state between
+// launches.
 package config
 
 import (
@@ -52,18 +53,25 @@ func DefaultPath() (string, error) {
 // Load reads state from path. Missing, unreadable, and malformed files all
 // yield the defaults so a damaged state file can never keep mdui from starting.
 func Load(path string) State {
-	state := Default()
+	state, _ := LoadState(path)
+	return state
+}
+
+// LoadState reads state from path and reports whether a valid file was found.
+// Callers use the flag to decide whether a config-file default should apply.
+func LoadState(path string) (State, bool) {
 	if path == "" {
-		return state
+		return Default(), false
 	}
+	state := Default()
 	if _, err := toml.DecodeFile(path, &state); err != nil {
-		return Default()
+		return Default(), false
 	}
 	if math.IsNaN(state.TreeRatio) || math.IsInf(state.TreeRatio, 0) ||
 		state.TreeRatio < 0 || state.TreeRatio > 1 {
-		return Default()
+		return Default(), false
 	}
-	return state
+	return state, true
 }
 
 // LoadDefault loads state from the default configuration path.
@@ -82,13 +90,17 @@ func Save(path string, state State) error {
 	if path == "" {
 		return errors.New("config: empty state path")
 	}
+	return writeTOML(path, state)
+}
 
+// writeTOML atomically encodes value as TOML at path.
+func writeTOML(path string, value any) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 
-	tmp, err := os.CreateTemp(dir, ".state-*.toml")
+	tmp, err := os.CreateTemp(dir, ".mdui-*.toml")
 	if err != nil {
 		return err
 	}
@@ -100,7 +112,7 @@ func Save(path string, state State) error {
 		}
 	}()
 
-	if err := toml.NewEncoder(tmp).Encode(state); err != nil {
+	if err := toml.NewEncoder(tmp).Encode(value); err != nil {
 		_ = tmp.Close()
 		return err
 	}
@@ -112,6 +124,48 @@ func Save(path string, state State) error {
 		return err
 	}
 
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
+// writeFileAtomic writes data to path through a temporary file and rename so
+// readers never observe a partial stylesheet or config.
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+
+	tmp, err := os.CreateTemp(dir, ".mdui-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.Remove(tmpName)
+		}
+	}()
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(mode); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
 	if err := os.Rename(tmpName, path); err != nil {
 		return err
 	}

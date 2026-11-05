@@ -3,7 +3,6 @@ package app
 import (
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -31,7 +30,7 @@ func TestRenderShell(t *testing.T) {
 		"• alpha.md",
 		"• beta.md",
 		"no file selected",
-		"tab focus · q quit",
+		"? help · q quit",
 		"│",
 		"╭", "╮", "╰", "╯",
 	} {
@@ -123,7 +122,7 @@ func TestTreeKeysUpdateStatusBar(t *testing.T) {
 	if m.selected != alpha {
 		t.Fatalf("selected = %q, want %q", m.selected, alpha)
 	}
-	if status := m.renderStatus(200); !strings.Contains(status, strconv.Quote(alpha)) {
+	if status := m.renderStatus(200); !strings.Contains(status, "alpha.md") {
 		t.Fatalf("status bar does not show selected path:\n%s", status)
 	}
 
@@ -131,7 +130,7 @@ func TestTreeKeysUpdateStatusBar(t *testing.T) {
 	if m.selected != beta {
 		t.Fatalf("after j selected = %q, want %q", m.selected, beta)
 	}
-	if status := m.renderStatus(200); !strings.Contains(status, strconv.Quote(beta)) {
+	if status := m.renderStatus(200); !strings.Contains(status, "beta.md") {
 		t.Fatalf("status bar did not follow cursor:\n%s", status)
 	}
 

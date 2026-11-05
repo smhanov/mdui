@@ -14,6 +14,7 @@ type request struct {
 	path  string
 	width int
 	style render.Style
+	emoji bool
 }
 
 type fakeRenderer struct {
@@ -27,14 +28,14 @@ type fakeRenderer struct {
 	err    error
 }
 
-func (f *fakeRenderer) file(reqID uint64, path string, width int, style render.Style) tea.Cmd {
-	req := request{reqID: reqID, path: path, width: width, style: style}
+func (f *fakeRenderer) file(reqID uint64, path string, width int, opts render.Options) tea.Cmd {
+	req := request{reqID: reqID, path: path, width: width, style: opts.Style, emoji: opts.Emoji}
 	f.calls = append(f.calls, req)
 	return func() tea.Msg { return f.result(req) }
 }
 
-func (f *fakeRenderer) embedded(reqID uint64, name string, _ []byte, width int, style render.Style) tea.Cmd {
-	req := request{reqID: reqID, path: name, width: width, style: style}
+func (f *fakeRenderer) embedded(reqID uint64, name string, _ []byte, width int, opts render.Options) tea.Cmd {
+	req := request{reqID: reqID, path: name, width: width, style: opts.Style, emoji: opts.Emoji}
 	f.calls = append(f.calls, req)
 	return func() tea.Msg { return f.result(req) }
 }
