@@ -29,6 +29,7 @@ also puts the binary in `$GOBIN`. mdui reads its configuration from
 | `=` | reset the pane split |
 | `r` | toggle raw markdown in the viewer |
 | `T` | open the table under the viewport at full width; any key closes |
+| `f` | fuzzy-find a markdown file; `Enter` opens it and reveals it in the tree |
 | `/` | search the document; `Enter` jumps, `Esc` cancels |
 | `n` / `N` | next / previous search match (wraps around) |
 | `.` | show or hide dot-prefixed files in the tree |
@@ -49,6 +50,25 @@ and smart-case: an all-lowercase query ignores case, while any uppercase
 letter makes it case-sensitive. The query follows the displayed view, so `r`
 re-applies it to the raw markdown. The status bar shows `current/total` while
 a committed search is active.
+
+`f` opens the fuzzy file finder. The first open indexes every `.md` /
+`.markdown` file under the folder in the background, showing an indexing state
+until it finishes; the index is cached for the rest of the session. Typing
+filters incrementally. Matching is case-insensitive and path-aware: file-name
+matches, path-segment starts, consecutive characters and exact-case characters
+score highest, with shorter lexicographic paths breaking ties. `↑` / `↓` (or
+`ctrl+k` / `ctrl+j`) choose a result, `PageUp` / `PageDown` move by a page, and
+`Enter` opens the file and expands the tree to reveal it. `Esc` closes the
+finder without changing the current document or tree cursor. The index follows
+the hidden-files setting; toggling `.` rebuilds it the next time the finder
+opens. Other overlays take precedence: `f` is ignored while help or the table
+picker is open, and the full-width table overlay consumes any key (including
+`f`) to close.
+
+While the finder is open it captures every key: `q`, `?`, `/` and spaces are
+query text, `ctrl+c` closes like `Esc`, and mouse events are ignored. The query
+line supports `←`/`→`, `Home`/`End`, `Backspace`/`Delete`, `ctrl+u` (clear) and
+`ctrl+w` (delete the previous word).
 
 ## Mouse
 
@@ -183,5 +203,6 @@ file. Unreadable files show an inline error in the viewer.
   confirmation before the system opener runs. Other schemes are refused.
 - Search matching is per rendered line: a query cannot span a line break or a
   wrapped table cell. Queries are literal strings, not regular expressions.
-- A fuzzy file finder, an outline sidebar, and opening files in `$EDITOR` are
-  not implemented yet.
+- The file finder searches file names and paths, not document contents. Its
+  index is in memory only and is rebuilt when the hidden-files setting changes.
+- An outline sidebar and opening files in `$EDITOR` are not implemented yet.

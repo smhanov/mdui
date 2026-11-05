@@ -58,6 +58,15 @@ var (
 	OverlayTitle = lipgloss.NewStyle().
 			Bold(true)
 
+	// FinderHint is the muted key/status line in the fuzzy finder.
+	FinderHint = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(muted))
+
+	// FinderMatch marks characters matched by a fuzzy query.
+	FinderMatch = lipgloss.NewStyle().
+			Bold(true).
+			Underline(true)
+
 	// MouseHint is the bar shown while mouse capture is off.
 	MouseHint = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("3")).

@@ -16,12 +16,13 @@ const (
 	overlayHelp
 	overlayTable
 	overlayTablePicker
+	overlayFinder
 )
 
 const (
 	// helpMinWidth and helpMaxWidth bound the rendered cheatsheet width.
 	helpMinWidth = 36
-	helpMaxWidth = 72
+	helpMaxWidth = 76
 )
 
 // openHelp renders the embedded cheatsheet at the current width and activates

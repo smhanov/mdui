@@ -12,6 +12,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"mdui/internal/config"
+	"mdui/internal/finder"
 	"mdui/internal/mdutil"
 	"mdui/internal/render"
 	"mdui/internal/style"
@@ -88,6 +89,19 @@ type Model struct {
 	lastTreeW       int
 	clampRatio      bool
 
+	finderIndex       *finder.Index
+	finderQuery       string
+	finderCursor      int
+	finderResults     []finder.Result
+	finderSel         int
+	finderOffset      int
+	finderWarn        string
+	finderState       finderState
+	finderSeq         uint64
+	finderBuilding    bool
+	finderBuildHidden bool
+	finderBuild       finder.Builder
+
 	tableReqID       uint64
 	tableActiveReq   uint64
 	tablePriorScroll int
@@ -130,6 +144,7 @@ type options struct {
 	mouse        bool
 	now          func() time.Time
 	opener       func(string) error
+	finderBuild  finder.Builder
 }
 
 // dragTickMsg is delivered by the debounce timer during a splitter drag. Seq
@@ -196,14 +211,23 @@ func WithOpener(opener func(string) error) Option {
 	}
 }
 
+// WithFinderBuilder overrides the fuzzy finder's index builder. Tests use it to
+// count filesystem walks; the default walks the root on first use.
+func WithFinderBuilder(builder finder.Builder) Option {
+	return func(c *options) {
+		c.finderBuild = builder
+	}
+}
+
 // New returns a root model scoped to root.
 func New(root string, opts ...Option) Model {
 	cfg := options{
-		docStyle: render.MduiDark,
-		emoji:    true,
-		mouse:    true,
-		sortBy:   "name",
-		now:      time.Now,
+		docStyle:    render.MduiDark,
+		emoji:       true,
+		mouse:       true,
+		sortBy:      "name",
+		now:         time.Now,
+		finderBuild: finder.Build,
 	}
 	for _, opt := range opts {
 		opt(&cfg)
@@ -225,6 +249,10 @@ func New(root string, opts ...Option) Model {
 	}
 	if m.now == nil {
 		m.now = time.Now
+	}
+	m.finderBuild = cfg.finderBuild
+	if m.finderBuild == nil {
+		m.finderBuild = finder.Build
 	}
 	if cfg.opener != nil {
 		m.opener = cfg.opener
@@ -274,6 +302,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.overlay == overlayHelp {
 			m = m.openHelp()
 		}
+		if m.overlay == overlayFinder {
+			m.ensureFinderSelectionVisible()
+		}
 		resizeCmd := m.resizePanes()
 		if m.overlay == overlayTable && len(m.tableChoices) > 0 {
 			next, tableCmd := m.beginTableRender(m.tablePick)
@@ -304,6 +335,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case tableRenderedMsg:
 		return m.handleTableRendered(msg)
+	case finderIndexMsg:
+		return m.handleFinderIndex(msg)
 	case dragTickMsg:
 		if !m.dragging || msg.Seq != m.dragSeq {
 			return m, nil
@@ -335,6 +368,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.overlay {
+	case overlayFinder:
+		return m.handleFinderKey(msg)
 	case overlayTable:
 		return m.dismissTableOverlay()
 	case overlayTablePicker:
@@ -375,6 +410,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m = m.openHelp()
 		return m, nil
+	case "f":
+		return m.openFinder()
 	case "T":
 		return m.openTableOverlay()
 	case "m":
@@ -390,8 +427,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleSplitKey(msg.String())
 	}
 	if m.focus == FocusTree {
+		wasHidden := m.tree.Hidden()
 		var cmd tea.Cmd
 		m.tree, cmd = m.tree.Update(msg)
+		if m.tree.Hidden() != wasHidden {
+			m.invalidateFinder()
+		}
 		return m, cmd
 	}
 	var cmd tea.Cmd
@@ -454,6 +495,9 @@ func (m Model) render() string {
 	}
 	if m.overlay == overlayTablePicker {
 		return m.renderTablePickerOverlay(base)
+	}
+	if m.overlay == overlayFinder {
+		return m.renderFinderOverlay(base)
 	}
 	return base
 }
@@ -836,7 +880,7 @@ func (m Model) statusRight() string {
 	if m.degraded() {
 		return "resize to ≥80×24"
 	}
-	hint := "? help · q quit"
+	hint := "f find · ? help · q quit"
 	if m.stats.Path == m.selected && m.stats.Ready && m.selected != "" {
 		hint = fmt.Sprintf("%d%% · %s", m.stats.ScrollPct, hint)
 	}
