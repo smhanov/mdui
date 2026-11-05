@@ -256,3 +256,51 @@ func TestRenderMalformedTable(t *testing.T) {
 		t.Fatal("content after the malformed table is missing")
 	}
 }
+
+// TestRenderSoftWrappedListItemReflows covers documents whose paragraphs and
+// list items are hard-wrapped in the source: the render must join the source
+// line breaks and re-wrap at the render width instead of keeping the source's
+// own wrapping.
+func TestRenderSoftWrappedListItemReflows(t *testing.T) {
+	item := "- item alpha one two\n  three four five\n"
+	rendered := func(width int) string {
+		out, err := RenderBytes([]byte(item), width, Options{Style: MduiDark})
+		if err != nil {
+			t.Fatalf("render at %d: %v", width, err)
+		}
+		return ansi.Strip(out)
+	}
+
+	wide := strings.Split(strings.TrimSpace(rendered(100)), "\n")
+	bullet := ""
+	for _, line := range wide {
+		if strings.Contains(line, "alpha") {
+			bullet = strings.TrimSpace(line)
+		}
+	}
+	if bullet != "• item alpha one two three four five" {
+		t.Errorf("wide render = %q, want the joined item on one line", bullet)
+	}
+
+	narrow := rendered(20)
+	squeezed := strings.Map(func(r rune) rune {
+		switch r {
+		case ' ', '\n', '\t':
+			return -1
+		}
+		return r
+	}, narrow)
+	if !strings.Contains(squeezed, "itemalphaonetwothreefourfive") {
+		t.Errorf("narrow render lost the joined item text:\n%s", narrow)
+	}
+	if strings.Contains(narrow, "two   three") {
+		t.Errorf("narrow render kept source indentation between joined lines:\n%s", narrow)
+	}
+	for _, line := range strings.Split(strings.TrimRight(narrow, "\n"), "\n") {
+		if w := lipglossWidth(line); w > 20 {
+			t.Errorf("narrow render line %q is %d cells, want ≤ 20:\n%s", line, w, narrow)
+		}
+	}
+}
+
+func lipglossWidth(s string) int { return len([]rune(s)) }

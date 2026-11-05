@@ -249,7 +249,7 @@ func renderMarkdown(data []byte, width int, opts Options) (string, error) {
 		return "", fmt.Errorf("render: %w", err)
 	}
 
-	rendered, err := renderer.Render(string(data))
+	rendered, err := renderer.Render(string(joinSoftBreaks(data)))
 	if err != nil {
 		return "", fmt.Errorf("render: %w", err)
 	}

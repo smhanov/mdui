@@ -4,7 +4,8 @@ A fast two-pane terminal viewer for folders of markdown files: browse the file
 tree on the left, read the rendered document on the right.
 
 - **Markdown, beautifully rendered** — headings, code highlighting, lists, and
-  Glamour v2 tables with wrapped cells and footnote links.
+  Glamour v2 tables with wrapped cells and footnote links. Hard-wrapped
+  paragraphs and list items reflow to the pane width.
 - **Built for tables** — a crushed table offers `T` to open at full terminal
   width; relative, anchor, and web links are clickable.
 - **Fast by default** — asynchronous rendering, a render cache, lazy directory
