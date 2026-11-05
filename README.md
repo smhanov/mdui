@@ -29,6 +29,8 @@ also puts the binary in `$GOBIN`. mdui reads its configuration from
 | `=` | reset the pane split |
 | `r` | toggle raw markdown in the viewer |
 | `T` | open the table under the viewport at full width; any key closes |
+| `/` | search the document; `Enter` jumps, `Esc` cancels |
+| `n` / `N` | next / previous search match (wraps around) |
 | `.` | show or hide dot-prefixed files in the tree |
 | `m` | toggle terminal mouse capture |
 
@@ -37,6 +39,16 @@ directory or re-opens a file without changing panes. In the viewer, `Enter`
 follows the first table footnote link visible in the viewport. When a table
 row wraps to more than three rendered lines, the status bar offers `T` to
 show that table at full terminal width.
+
+`/` opens a search prompt on the status bar. Typing updates the match count
+and highlights immediately; `Enter` jumps to the first match at or after the
+current scroll position (wrapping to the top when there is none later), and
+`n` / `N` cycle through matches with wrap-around. `Esc` cancels the prompt or
+clears a committed search. Search is literal text, not a regular expression,
+and smart-case: an all-lowercase query ignores case, while any uppercase
+letter makes it case-sensitive. The query follows the displayed view, so `r`
+re-applies it to the raw markdown. The status bar shows `current/total` while
+a committed search is active.
 
 ## Mouse
 
@@ -152,10 +164,11 @@ style, and emoji setting.
 
 The bottom row shows the selected path (relative to the opened folder), word
 count, estimated reading time at 200 words per minute (minimum one minute),
-the scroll position as a percentage, and short key hints. If the open file is
-deleted during the session, mdui keeps the last rendered page and shows a
-warning in the status bar until you select another file. Unreadable files show
-an inline error in the viewer.
+the scroll position as a percentage, and short key hints. During a search it
+shows the query, the incremental match count, and `current/total` once
+committed. If the open file is deleted during the session, mdui keeps the last
+rendered page and shows a warning in the status bar until you select another
+file. Unreadable files show an inline error in the viewer.
 
 ## Notes and limits
 
@@ -168,5 +181,7 @@ an inline error in the viewer.
 - Relative `.md` links open in the viewer (the tree cursor is not moved),
   `#anchors` scroll within the current document, and http(s) links require
   confirmation before the system opener runs. Other schemes are refused.
-- Document search, a fuzzy file finder, an outline sidebar, and opening files
-  in `$EDITOR` are not implemented yet.
+- Search matching is per rendered line: a query cannot span a line break or a
+  wrapped table cell. Queries are literal strings, not regular expressions.
+- A fuzzy file finder, an outline sidebar, and opening files in `$EDITOR` are
+  not implemented yet.

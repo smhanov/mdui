@@ -46,13 +46,13 @@ func TestHelpMarkdownListsImplementedKeys(t *testing.T) {
 		"`q`", "`ctrl+c`", "`?`", "`m`", "`tab`", "`shift+tab`",
 		"`r`", "`H`", "`L`", "`=`", "`g`", "`G`", "`ctrl+d`", "`ctrl+u`",
 		"`←`", "`→`", "`enter`", "`pgup`", "`pgdn`", "`.`", "double-click",
-		"`T`", "footnote link",
+		"`T`", "footnote link", "`/`", "`n`", "`N`", "search document",
 	} {
 		if !strings.Contains(help, want) {
 			t.Errorf("help cheatsheet missing %q", want)
 		}
 	}
-	for _, unwanted := range []string{"fuzzy", "`e`", "`t`", "`/`", "`f`"} {
+	for _, unwanted := range []string{"fuzzy", "`e`", "`t`", "`f`"} {
 		if strings.Contains(help, unwanted) {
 			t.Errorf("help advertises unimplemented feature %q", unwanted)
 		}

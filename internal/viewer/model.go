@@ -13,6 +13,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
+	"mdui/internal/docsearch"
 	"mdui/internal/render"
 	"mdui/internal/style"
 )
@@ -69,6 +70,11 @@ type Model struct {
 
 	stats StatsMsg
 
+	searchQuery     string
+	searchIndex     *docsearch.Index
+	searchCommitted bool
+	searchCurrent   int
+
 	fileCmd  func(reqID uint64, path string, width int, opts render.Options) tea.Cmd
 	bytesCmd func(reqID uint64, name string, data []byte, width int, opts render.Options) tea.Cmd
 	rawCmd   func(reqID uint64, path string) tea.Cmd
@@ -93,13 +99,14 @@ func NewWithOptions(opts Options) Model {
 		opts.WrapWidth = 0
 	}
 	m := Model{
-		viewport:  viewport.New(),
-		docStyle:  opts.Style,
-		emoji:     opts.Emoji,
-		wrapWidth: opts.WrapWidth,
-		fileCmd:   render.NewCmdWith,
-		bytesCmd:  render.BytesCmdWith,
-		rawCmd:    render.RawCmd,
+		viewport:      viewport.New(),
+		docStyle:      opts.Style,
+		emoji:         opts.Emoji,
+		wrapWidth:     opts.WrapWidth,
+		searchCurrent: -1,
+		fileCmd:       render.NewCmdWith,
+		bytesCmd:      render.BytesCmdWith,
+		rawCmd:        render.RawCmd,
 	}
 	m.viewport.SoftWrap = true
 	m.viewport.FillHeight = true
@@ -147,6 +154,7 @@ func (m *Model) Open(path string) tea.Cmd {
 		m.err = nil
 		m.warning = ""
 		m.stats = StatsMsg{Path: path}
+		m.resetSearch()
 		m.viewport.GotoTop()
 	}
 
@@ -298,7 +306,42 @@ func (m *Model) requestRender() tea.Cmd {
 }
 
 func (m *Model) applyContent() {
-	m.viewport.SetContent(m.content())
+	m.rebuildSearch()
+	m.viewport.SetContent(m.searchView())
+}
+
+// rebuildSearch is folded into applyContent so every projection change (raw
+// toggle, async raw load, width re-render, new document) re-indexes the same
+// query against the currently displayed content.
+func (m *Model) rebuildSearch() {
+	if m.searchQuery == "" {
+		m.searchIndex = nil
+		m.searchCurrent = -1
+		return
+	}
+
+	anchor := m.viewport.YOffset()
+	if m.searchCurrent >= 0 && m.searchIndex != nil && m.searchCurrent < len(m.searchIndex.Matches) {
+		anchor = m.searchIndex.Matches[m.searchCurrent].Line
+	}
+
+	m.searchIndex = docsearch.New(m.content(), m.searchQuery)
+	if len(m.searchIndex.Matches) == 0 {
+		m.searchCurrent = -1
+		return
+	}
+	if m.searchCommitted {
+		m.searchCurrent = firstMatchAtOrAfter(m.searchIndex.Matches, anchor)
+	} else {
+		m.searchCurrent = -1
+	}
+}
+
+func (m Model) searchView() string {
+	if m.searchIndex != nil && len(m.searchIndex.Matches) > 0 {
+		return m.searchIndex.Highlight()
+	}
+	return m.content()
 }
 
 func (m Model) content() string {
@@ -345,9 +388,138 @@ func (m Model) View(width, height int) string {
 		Render(m.viewport.View())
 }
 
-// Content returns the text currently projected into the viewport.
+// Content returns the text currently projected into the viewport. While a
+// query is active this includes reverse-video highlight sequences.
 func (m Model) Content() string {
 	return m.viewport.GetContent()
+}
+
+// BaseContent returns the displayed projection before search highlighting. It
+// is the string to compare against a fresh render result.
+func (m Model) BaseContent() string {
+	return m.content()
+}
+
+// BeginSearch clears any previous query and highlights so the status-bar
+// prompt starts from an empty projection.
+func (m *Model) BeginSearch() {
+	m.resetSearch()
+	m.applyContent()
+}
+
+// SetSearchQuery replaces the query while the prompt is open. Matches and
+// highlights update immediately; the search is not committed until
+// CommitSearch, so n and N remain inactive.
+func (m *Model) SetSearchQuery(query string) {
+	m.searchQuery = query
+	m.searchCommitted = false
+	m.searchCurrent = -1
+	m.applyContent()
+}
+
+// CommitSearch makes the current query repeatable with n/N, chooses the first
+// match at or after the current scroll position (wrapping to the first match),
+// and scrolls to it. It returns the total match count and any stats command.
+func (m *Model) CommitSearch() (int, tea.Cmd) {
+	if m.searchQuery == "" {
+		m.resetSearch()
+		m.applyContent()
+		return 0, nil
+	}
+
+	m.searchCommitted = true
+	m.applyContent()
+	total := m.SearchTotal()
+	if total == 0 {
+		return 0, m.statsCommand(true)
+	}
+	m.scrollToCurrentMatch()
+	return total, m.statsCommand(true)
+}
+
+// CancelSearch clears the query, match index, and highlight projection.
+func (m *Model) CancelSearch() {
+	m.resetSearch()
+	m.applyContent()
+}
+
+// SearchQuery returns the current query, including while the prompt is open.
+func (m Model) SearchQuery() string {
+	return m.searchQuery
+}
+
+// SearchActive reports whether a committed query is repeatable with n/N.
+func (m Model) SearchActive() bool {
+	return m.searchCommitted && m.searchQuery != ""
+}
+
+// SearchTotal returns the number of matches in the current projection.
+func (m Model) SearchTotal() int {
+	if m.searchIndex == nil {
+		return 0
+	}
+	return len(m.searchIndex.Matches)
+}
+
+// SearchStatus returns the 0-based current match and the total match count.
+// Current is -1 when there are no matches.
+func (m Model) SearchStatus() (current, total int) {
+	return m.searchCurrent, m.SearchTotal()
+}
+
+// NextMatch moves to the next match with wrap-around. It reports whether a
+// match was available and returns any stats command.
+func (m *Model) NextMatch() (bool, tea.Cmd) {
+	total := m.SearchTotal()
+	if !m.SearchActive() || total == 0 {
+		return false, nil
+	}
+	if m.searchCurrent < 0 || m.searchCurrent >= total {
+		m.searchCurrent = 0
+	} else {
+		m.searchCurrent = (m.searchCurrent + 1) % total
+	}
+	m.scrollToCurrentMatch()
+	return true, m.statsCommand(true)
+}
+
+// PrevMatch moves to the previous match with wrap-around. It reports whether a
+// match was available and returns any stats command.
+func (m *Model) PrevMatch() (bool, tea.Cmd) {
+	total := m.SearchTotal()
+	if !m.SearchActive() || total == 0 {
+		return false, nil
+	}
+	if m.searchCurrent <= 0 || m.searchCurrent >= total {
+		m.searchCurrent = total - 1
+	} else {
+		m.searchCurrent--
+	}
+	m.scrollToCurrentMatch()
+	return true, m.statsCommand(true)
+}
+
+func (m *Model) resetSearch() {
+	m.searchQuery = ""
+	m.searchIndex = nil
+	m.searchCommitted = false
+	m.searchCurrent = -1
+}
+
+func (m *Model) scrollToCurrentMatch() {
+	if m.searchIndex == nil || m.searchCurrent < 0 || m.searchCurrent >= len(m.searchIndex.Matches) {
+		return
+	}
+	m.viewport.SetYOffset(m.searchIndex.Matches[m.searchCurrent].Line)
+}
+
+func firstMatchAtOrAfter(matches []docsearch.Match, line int) int {
+	for i, match := range matches {
+		if match.Line >= line {
+			return i
+		}
+	}
+	return 0
 }
 
 // RawMode reports whether the pane is showing raw markdown.

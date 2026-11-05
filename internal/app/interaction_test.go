@@ -25,7 +25,7 @@ func TestHelpOverlayOpensAndDismisses(t *testing.T) {
 		t.Fatal("help overlay does not dim the backdrop")
 	}
 	plain := ansi.Strip(out)
-	for _, want := range []string{"mdui keys", "double-click", "to close this help", "mdui — "} {
+	for _, want := range []string{"mdui keys", "double-click", "to close this help", "mdui — ", "search document", "next / prev"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("help overlay missing %q:\n%s", want, plain)
 		}

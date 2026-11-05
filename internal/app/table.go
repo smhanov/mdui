@@ -286,6 +286,8 @@ func (m *Model) resetDocumentIndex() {
 	m.tableClipped = false
 	m.notice = ""
 	m.pendingAnchor = ""
+	m.searchPrompt = false
+	m.viewer.CancelSearch()
 }
 
 func (m Model) lineForAnchor(anchor string) (int, bool) {

@@ -80,6 +80,7 @@ type Model struct {
 	overlay         overlayKind
 	helpBody        string
 	helpWidth       int
+	searchPrompt    bool
 	mouse           bool
 	dragging        bool
 	dragSeq         uint64
@@ -297,7 +298,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case render.RenderedMsg:
 		var cmd tea.Cmd
 		m.viewer, cmd = m.viewer.Update(msg)
-		if msg.Path == m.selected && !msg.RawOnly && msg.Err == nil && !msg.Large && msg.Rendered == m.viewer.Content() {
+		if msg.Path == m.selected && !msg.RawOnly && msg.Err == nil && !msg.Large && msg.Rendered == m.viewer.BaseContent() {
 			cmd = chainCommands(cmd, m.applyRenderedIndex(msg))
 		}
 		return m, cmd
@@ -347,6 +348,10 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if m.searchPrompt {
+		return m.handleSearchPromptKey(msg)
+	}
+
 	m.notice = ""
 	if msg.String() == "enter" && m.focus == FocusViewer {
 		return m.followVisibleLink()
@@ -356,6 +361,17 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		m.saveState()
 		return m, tea.Quit
+	case "/":
+		return m.startSearch()
+	case "n", "N":
+		if m.viewer.SearchActive() {
+			return m.jumpSearchMatch(msg.String())
+		}
+	case "esc":
+		if m.viewer.SearchActive() {
+			m.viewer.CancelSearch()
+			return m, nil
+		}
 	case "?":
 		m = m.openHelp()
 		return m, nil
@@ -569,6 +585,9 @@ func (m *Model) scheduleDragTick() tea.Cmd {
 }
 
 func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	if m.searchPrompt {
+		return m, nil
+	}
 	if m.overlay == overlayTable {
 		return m.dismissTableOverlay()
 	}
@@ -639,7 +658,7 @@ func (m *Model) clearClick() {
 }
 
 func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
-	if !m.mouse || m.overlay != overlayNone || !m.dragging {
+	if m.searchPrompt || !m.mouse || m.overlay != overlayNone || !m.dragging {
 		return m, nil
 	}
 	innerW := m.innerWidth()
@@ -651,7 +670,7 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) {
-	if !m.dragging {
+	if m.searchPrompt || !m.dragging {
 		return m, nil
 	}
 
@@ -663,7 +682,7 @@ func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) 
 }
 
 func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
-	if !m.mouse || m.overlay != overlayNone {
+	if m.searchPrompt || !m.mouse || m.overlay != overlayNone {
 		return m, nil
 	}
 	mouse := msg.Mouse()
@@ -740,8 +759,21 @@ func (m Model) renderStatus(width int) string {
 	right := style.StatusRight.Render(rightText)
 
 	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 0 {
+	if gap < 0 && !m.searchVisible() {
 		// Keep the file info; drop the hint when there is no room for both.
+		right = ""
+		gap = width - lipgloss.Width(left)
+	}
+	if gap < 0 && m.searchVisible() {
+		// Search feedback is more useful than the file label; shrink the
+		// left block before dropping current/total.
+		available := width - lipgloss.Width(right) - style.StatusLeft.GetHorizontalFrameSize()
+		if available >= 1 {
+			left = style.StatusLeft.Render(style.Truncate(leftText, available))
+			gap = width - lipgloss.Width(left) - lipgloss.Width(right)
+		}
+	}
+	if gap < 0 {
 		right = ""
 		gap = width - lipgloss.Width(left)
 	}
@@ -764,6 +796,9 @@ func (m Model) statusLeft() string {
 	if m.pendingLink != nil {
 		return "open " + m.pendingLink.URL + "? y open · n cancel"
 	}
+	if m.searchPrompt {
+		return "/" + m.viewer.SearchQuery() + "▏"
+	}
 	if m.selected == "" {
 		return "no file selected"
 	}
@@ -776,6 +811,9 @@ func (m Model) statusLeft() string {
 	if warning := m.viewer.Warning(); warning != "" {
 		label = "⚠ " + warning + " · " + label
 	}
+	if m.viewer.SearchActive() {
+		label += m.searchLabel()
+	}
 	return label
 }
 
@@ -785,6 +823,12 @@ func (m Model) statusRight() string {
 	}
 	if m.pendingLink != nil {
 		return "confirm open"
+	}
+	if m.searchPrompt {
+		return m.searchPromptStatus()
+	}
+	if m.viewer.SearchActive() {
+		return m.searchCommittedStatus()
 	}
 	if m.tableClipped && m.selected != "" && !m.viewer.RawMode() {
 		return "table clipped — T to view full width"
