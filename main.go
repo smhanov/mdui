@@ -35,15 +35,16 @@ var readBuildInfo = debug.ReadBuildInfo
 
 func main() {
 	var (
-		styleFlag   = flag.String("style", "", "document style: auto, dark, light, a name, or a JSON path")
-		mouseFlag   = flag.Bool("mouse", false, "enable mouse capture (default: config)")
-		noMouseFlag = flag.Bool("no-mouse", false, "disable mouse capture")
-		widthFlag   = flag.Int("width", -1, "reflow width in columns; 0 uses the pane width")
-		emojiFlag   = flag.Bool("emoji", false, "render :emoji: shortcodes as unicode")
-		noEmojiFlag = flag.Bool("no-emoji", false, "leave :emoji: shortcodes as written")
-		hiddenFlag  = flag.Bool("hidden", false, "show dot-prefixed entries")
-		sortFlag    = flag.String("sort", "", "tree order: name, mtime, or size")
-		versionFlag = flag.Bool("version", false, "print the version and exit")
+		styleFlag    = flag.String("style", "", "document style: auto, dark, light, a name, or a JSON path")
+		mouseFlag    = flag.Bool("mouse", false, "enable mouse capture (default: config)")
+		noMouseFlag  = flag.Bool("no-mouse", false, "disable mouse capture")
+		widthFlag    = flag.Int("width", -1, "reflow width in columns; 0 uses the pane width")
+		emojiFlag    = flag.Bool("emoji", false, "render :emoji: shortcodes as unicode")
+		noEmojiFlag  = flag.Bool("no-emoji", false, "leave :emoji: shortcodes as written")
+		hiddenFlag   = flag.Bool("hidden", false, "show dot-prefixed entries")
+		sortFlag     = flag.String("sort", "", "tree order: name, mtime, or size")
+		noLiveReload = flag.Bool("no-live-reload", false, "disable live filesystem updates")
+		versionFlag  = flag.Bool("version", false, "print the version and exit")
 	)
 
 	flag.Usage = func() {
@@ -113,6 +114,9 @@ func main() {
 	}
 	if set["sort"] && *sortFlag != "" {
 		cfg.SortBy = *sortFlag
+	}
+	if set["no-live-reload"] && *noLiveReload {
+		cfg.LiveReload = false
 	}
 
 	stylesDir, err := config.StylesPath()

@@ -1,6 +1,8 @@
 package apptest
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -94,6 +96,62 @@ func driveRepaint(t *testing.T, answers Answers) {
 		t.Fatalf("q did not exit cleanly: %v", err)
 	}
 	t.Logf("clean exit after q; total output %d bytes", s.Size())
+}
+
+// TestLiveReloadUpdatesTreeAndViewer drives the real binary: writing the open
+// document must repaint it in place, and creating a markdown file must add it
+// to the tree without any key press.
+func TestLiveReloadUpdatesTreeAndViewer(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping pty test in -short mode")
+	}
+
+	root := WriteFixtures(t)
+	s := Start(t, Options{Binary: BuildBinary(t), Folder: root, Answers: All()})
+	if ok, elapsed := s.WaitFor("alpha.md", firstFrameTimeout); !ok {
+		t.Fatalf("initial frame never appeared within %s", firstFrameTimeout)
+	} else {
+		t.Logf("initial frame after %s", elapsed.Round(time.Millisecond))
+	}
+
+	s.Write("j")
+	if ok, elapsed := s.WaitFor("Alpha document", repaintTimeout+settleMax); !ok {
+		t.Fatalf("alpha preview never rendered after j within %s", repaintTimeout+settleMax)
+	} else {
+		t.Logf("alpha preview after %s", elapsed.Round(time.Millisecond))
+	}
+
+	alpha := filepath.Join(root, "alpha.md")
+	file, err := os.OpenFile(alpha, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatalf("opening alpha.md: %v", err)
+	}
+	if _, err := file.WriteString("\n\nliveupdate marker text\n"); err != nil {
+		file.Close()
+		t.Fatalf("appending to alpha.md: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("closing alpha.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "delta.md"), []byte("# Delta document\n\nDelta body text.\n"), 0o644); err != nil {
+		t.Fatalf("creating delta.md: %v", err)
+	}
+
+	if ok, elapsed := s.WaitFor("liveupdate", 3*time.Second); !ok {
+		t.Fatalf("open document did not re-render after a write within 3s (wrote %d bytes)", s.Size())
+	} else {
+		t.Logf("document refreshed after %s", elapsed.Round(time.Millisecond))
+	}
+	if ok, elapsed := s.WaitFor("delta.md", 3*time.Second); !ok {
+		t.Fatalf("new markdown file did not appear in the tree within 3s (wrote %d bytes)", s.Size())
+	} else {
+		t.Logf("tree refreshed after %s", elapsed.Round(time.Millisecond))
+	}
+
+	s.Write("q")
+	if err := s.Wait(quitTimeout); err != nil {
+		t.Fatalf("q did not exit cleanly after live updates: %v", err)
+	}
 }
 
 // TestKeysTypedDuringStartupSurvive drives the reported experience: on a

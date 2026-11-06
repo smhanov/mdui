@@ -33,17 +33,19 @@ type Config struct {
 	SortBy        string  `toml:"sort_by"`
 	TreeRatio     float64 `toml:"tree_ratio"`
 	Editor        string  `toml:"editor"`
+	LiveReload    bool    `toml:"live_reload"`
 }
 
 // DefaultConfig returns the preferences used on first launch or after a bad
 // config file.
 func DefaultConfig() Config {
 	return Config{
-		Style:     "auto",
-		Mouse:     true,
-		Emoji:     true,
-		SortBy:    sortByName,
-		TreeRatio: DefaultTreeRatio,
+		Style:      "auto",
+		Mouse:      true,
+		Emoji:      true,
+		SortBy:     sortByName,
+		TreeRatio:  DefaultTreeRatio,
+		LiveReload: true,
 	}
 }
 
@@ -212,6 +214,10 @@ tree_ratio = 0.3
 
 # Editor command reserved for opening the current file (not used yet).
 editor = ""
+
+# Update the file tree and the open document when files change on disk.
+# Disable this on network filesystems that do not report local changes.
+live_reload = true
 `
 
 // installDefaultStyles copies the embedded stylesheets into dir without

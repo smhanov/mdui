@@ -169,6 +169,28 @@ func (m *Model) Open(path string) tea.Cmd {
 	return m.fileCmd(m.reqID, path, max(1, m.renderWidth), m.renderOptions())
 }
 
+// Refresh re-renders the current document after its file changed on disk. It
+// keeps the current mode, scroll offset, and search state, unlike Open which
+// resets them for a new selection. The welcome document is embedded, so there
+// is nothing to reload for it.
+func (m *Model) Refresh() tea.Cmd {
+	if m.path == "" {
+		return nil
+	}
+
+	if m.rawMode {
+		m.rawReqID++
+		m.loading = true
+		m.applyContent()
+		return m.rawCmd(m.rawReqID, m.path)
+	}
+
+	m.reqID++
+	m.loading = true
+	m.applyContent()
+	return m.fileCmd(m.reqID, m.path, max(1, m.renderWidth), m.renderOptions())
+}
+
 // Update handles render results and viewer keybindings. Scroll keys are
 // forwarded to the viewport and never start a render.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {

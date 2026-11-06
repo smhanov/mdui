@@ -361,15 +361,21 @@ func (m *Model) attach(node *Node, children []*Node) {
 	node.Children = children
 }
 
-// toggleHidden re-scans every loaded directory with the new visibility rule.
-// Matching children keep their expansion state, so toggling does not collapse
-// the tree or lose the cursor.
-func (m *Model) toggleHidden() tea.Cmd {
+// Reload rescans every directory that has already been loaded and returns a
+// selection command when the cursor moved to a different file. Matching
+// children keep their expansion and load state, so a background filesystem
+// change does not collapse the tree. The cursor is restored by path; when the
+// previously selected file vanished it falls back to the nearest row.
+//
+// affected optionally narrows the empty-directory re-evaluation: when
+// hide_empty_dirs is on, only directories on or below a changed path (or
+// ancestors of one) are walked again. Other directories keep their previous
+// filtered state, so a reload stays proportional to the change, not the tree.
+func (m *Model) Reload(affected ...string) tea.Cmd {
 	path := m.cursorPath()
 	index := m.cursor
 
-	m.showHidden = !m.showHidden
-	m.reload(m.root)
+	m.reload(m.root, affected)
 	m.rebuild()
 
 	if i := m.rowIndexByPath(path); i >= 0 {
@@ -378,10 +384,43 @@ func (m *Model) toggleHidden() tea.Cmd {
 		m.cursor = index
 	}
 	m.clampCursor()
+
+	if path != "" && m.cursorPath() == path {
+		return nil
+	}
 	return m.selectionCmd()
 }
 
-func (m *Model) reload(node *Node) {
+// LoadedDirs returns every directory the tree has scanned: the root plus each
+// directory that has ever been expanded. Collapsed-but-loaded directories stay
+// in the list because their children are still cached and can change on disk.
+func (m Model) LoadedDirs() []string {
+	var dirs []string
+	var walk func(*Node)
+	walk = func(node *Node) {
+		if node == nil {
+			return
+		}
+		if node.IsDir && node.Loaded && !node.cycle {
+			dirs = append(dirs, node.Path)
+		}
+		for _, child := range node.Children {
+			walk(child)
+		}
+	}
+	walk(m.root)
+	return dirs
+}
+
+// toggleHidden re-scans every loaded directory with the new visibility rule.
+// Matching children keep their expansion state, so toggling does not collapse
+// the tree or lose the cursor.
+func (m *Model) toggleHidden() tea.Cmd {
+	m.showHidden = !m.showHidden
+	return m.Reload()
+}
+
+func (m *Model) reload(node *Node, affected []string) {
 	if !node.IsDir || !node.Loaded || node.cycle {
 		return
 	}
@@ -413,10 +452,75 @@ func (m *Model) reload(node *Node) {
 	}
 
 	node.Err = ""
-	m.attach(node, m.refine(children))
+	m.attach(node, m.refineReload(oldChildren, children, affected))
 	for _, child := range children {
-		m.reload(child)
+		m.reload(child, affected)
 	}
+}
+
+// refineReload applies the empty-directory filter to a rescan. With a scoped
+// change set it avoids walking every directory: a directory that was already
+// visible and is unrelated to the change keeps that state, while directories
+// whose contents changed are re-walked so a now-empty directory can disappear
+// and a newly populated one can appear.
+func (m *Model) refineReload(oldChildren, nodes []*Node, affected []string) []*Node {
+	if !m.hideEmpty || len(affected) == 0 {
+		return m.refine(nodes)
+	}
+
+	previouslyVisible := make(map[string]bool, len(oldChildren))
+	for _, child := range oldChildren {
+		previouslyVisible[child.Path] = child.IsDir
+	}
+
+	filtered := nodes[:0]
+	for _, node := range nodes {
+		if node.IsDir {
+			touched := touchedBy(node.Path, affected)
+			visible, existed := previouslyVisible[node.Path]
+			switch {
+			case touched:
+				if !hasMarkdownBeneath(node.Path, m.showHidden) {
+					continue
+				}
+			case existed && visible:
+				// Unchanged directory that the user could already see.
+			default:
+				// An unrelated new directory stays hidden until a full
+				// reload (or its own change event) re-evaluates it.
+				continue
+			}
+		}
+		filtered = append(filtered, node)
+	}
+	sortNodesBy(filtered, m.sortBy)
+	return filtered
+}
+
+// touchedBy reports whether path contains a changed path or is contained by
+// one. Ancestors are included so deleting the last markdown file below a
+// visible directory can hide it; descendants are included so a newly created
+// directory tree is evaluated once.
+func touchedBy(path string, affected []string) bool {
+	path = filepath.Clean(path)
+	for _, changed := range affected {
+		if changed == "" {
+			continue
+		}
+		changed = filepath.Clean(changed)
+		if path == changed || isUnder(path, changed) || isUnder(changed, path) {
+			return true
+		}
+	}
+	return false
+}
+
+func isUnder(path, parent string) bool {
+	rel, err := filepath.Rel(parent, path)
+	if err != nil {
+		return false
+	}
+	return rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func (m *Model) rebuild() {

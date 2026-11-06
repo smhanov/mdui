@@ -2,7 +2,10 @@
 package app
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -18,6 +21,7 @@ import (
 	"github.com/smhanov/mdui/internal/style"
 	"github.com/smhanov/mdui/internal/tree"
 	"github.com/smhanov/mdui/internal/viewer"
+	"github.com/smhanov/mdui/internal/watch"
 )
 
 const (
@@ -38,6 +42,16 @@ const (
 	// splitter is being dragged.
 	dragDebounce = 100 * time.Millisecond
 
+	// fsDebounce is the quiet window after a filesystem change before the
+	// tree and viewer reload. Bursts stretch it up to fsMaxDelay so a large
+	// checkout or build settles into one rescan.
+	fsDebounce = 200 * time.Millisecond
+	fsMaxDelay = 2 * time.Second
+
+	// maxWatchedDirs bounds the directory watch set. Directories beyond the
+	// limit still work: they are scanned when the user expands them.
+	maxWatchedDirs = 256
+
 	// nudgeColumns is the divider step for the H and L keys.
 	nudgeColumns = 2
 
@@ -48,6 +62,10 @@ const (
 	// counts as a double-click.
 	doubleClickWindow = 400 * time.Millisecond
 )
+
+// newWatcher creates the filesystem watcher. Tests replace it to exercise the
+// graceful-degradation path without depending on a real watch failure.
+var newWatcher = watch.New
 
 // Focus identifies which pane receives routed input.
 type Focus int
@@ -128,6 +146,16 @@ type Model struct {
 	lastClickPath  string
 	lastClickTime  time.Time
 	now            func() time.Time
+
+	watcher       watch.Watcher
+	watched       map[string]bool
+	watchLimit    int
+	watchDegraded bool
+	fsDirty       bool
+	fsPending     bool
+	fsDelay       time.Duration
+	fsSeq         uint64
+	fsPaths       []string
 }
 
 type options struct {
@@ -145,12 +173,22 @@ type options struct {
 	now          func() time.Time
 	opener       func(string) error
 	finderBuild  finder.Builder
+	watcher      watch.Watcher
+	watcherSet   bool
+	liveReload   bool
 }
 
 // dragTickMsg is delivered by the debounce timer during a splitter drag. Seq
 // ties the tick to the drag that scheduled it so a stale timer cannot disturb
 // a later drag.
 type dragTickMsg struct {
+	Seq uint64
+}
+
+// fsTickMsg is delivered after a filesystem-change quiet window. Seq ties the
+// tick to the batch that scheduled it so earlier timers from the same burst
+// cannot reload twice.
+type fsTickMsg struct {
 	Seq uint64
 }
 
@@ -193,6 +231,7 @@ func WithConfig(cfg config.Config) Option {
 		c.hideEmpty = cfg.HideEmptyDirs
 		c.sortBy = cfg.SortBy
 		c.mouse = cfg.Mouse
+		c.liveReload = cfg.LiveReload
 	}
 }
 
@@ -219,6 +258,16 @@ func WithFinderBuilder(builder finder.Builder) Option {
 	}
 }
 
+// WithWatcher injects the filesystem watcher. A nil watcher disables live
+// updates and leaves behavior identical to a static tree and viewer. Injected
+// watchers are owned by the model and closed on quit.
+func WithWatcher(watcher watch.Watcher) Option {
+	return func(c *options) {
+		c.watcher = watcher
+		c.watcherSet = true
+	}
+}
+
 // New returns a root model scoped to root.
 func New(root string, opts ...Option) Model {
 	cfg := options{
@@ -228,6 +277,7 @@ func New(root string, opts ...Option) Model {
 		sortBy:      "name",
 		now:         time.Now,
 		finderBuild: finder.Build,
+		liveReload:  true,
 	}
 	for _, opt := range opts {
 		opt(&cfg)
@@ -243,6 +293,9 @@ func New(root string, opts ...Option) Model {
 		emoji:      cfg.emoji,
 		mouse:      cfg.mouse,
 		now:        cfg.now,
+		watched:    make(map[string]bool),
+		watchLimit: maxWatchedDirs,
+		fsDelay:    fsDebounce,
 	}
 	if m.docStyle == "" {
 		m.docStyle = render.MduiDark
@@ -278,12 +331,23 @@ func New(root string, opts ...Option) Model {
 		Emoji:     cfg.emoji,
 		WrapWidth: cfg.wrapWidth,
 	})
+
+	switch {
+	case cfg.watcherSet:
+		m.watcher = cfg.watcher
+	case cfg.liveReload:
+		if watcher, err := newWatcher(cfg.hiddenFiles); err == nil {
+			m.watcher = watcher
+		}
+	}
+	m.syncWatches()
 	return m
 }
 
-// Init implements tea.Model.
+// Init implements tea.Model. A live watcher starts its event subscription;
+// without one the app never reads the filesystem in the background.
 func (m Model) Init() tea.Cmd {
-	return nil
+	return watch.Subscribe(m.watcher)
 }
 
 // Update implements tea.Model. Layout-level messages are handled here; pane
@@ -343,6 +407,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.dragTickPending = false
 		return m, m.renderSplitIfNeeded()
+	case watch.ChangeMsg:
+		return m.handleWatchChange(msg)
+	case fsTickMsg:
+		return m.handleFsTick(msg)
 	case tree.SelectionMsg:
 		m.selected = msg.Path
 		m.stats = viewer.StatsMsg{Path: msg.Path}
@@ -394,6 +462,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "q", "ctrl+c":
+		m.closeWatcher()
 		m.saveState()
 		return m, tea.Quit
 	case "/":
@@ -433,6 +502,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.tree.Hidden() != wasHidden {
 			m.invalidateFinder()
 		}
+		m.syncWatches()
 		return m, cmd
 	}
 	var cmd tea.Cmd
@@ -628,6 +698,190 @@ func (m *Model) scheduleDragTick() tea.Cmd {
 	})
 }
 
+// handleWatchChange absorbs one watcher batch, keeps the subscription alive,
+// and schedules a quiet-window reload. Paths outside the root and hidden-path
+// noise are ignored even though the watcher already filters them, so injected
+// or platform-specific batches cannot dirty the tree needlessly.
+func (m Model) handleWatchChange(msg watch.ChangeMsg) (tea.Model, tea.Cmd) {
+	paths := m.relevantChanges(msg.Paths)
+	subscribe := watch.Subscribe(m.watcher)
+	if len(paths) == 0 {
+		return m, subscribe
+	}
+
+	m.fsDirty = true
+	m.addAffected(paths)
+	return m, chainCommands(subscribe, m.scheduleFsTick())
+}
+
+// scheduleFsTick restarts the debounce window for every new batch. A burst
+// stretches the wait from fsDebounce toward fsMaxDelay; stale timers are
+// ignored by sequence number, so only the last one reloads.
+func (m *Model) scheduleFsTick() tea.Cmd {
+	if m.fsPending {
+		m.fsDelay = min(m.fsDelay*2, fsMaxDelay)
+	} else {
+		m.fsDelay = fsDebounce
+	}
+	m.fsPending = true
+	m.fsSeq++
+	seq := m.fsSeq
+	delay := m.fsDelay
+	return tea.Tick(delay, func(time.Time) tea.Msg {
+		return fsTickMsg{Seq: seq}
+	})
+}
+
+// handleFsTick applies the coalesced change set: the watch set follows the
+// tree's loaded directories, both panes rescan, and the finder cache is
+// invalidated. The viewer only reloads when the open document itself changed.
+func (m Model) handleFsTick(msg fsTickMsg) (tea.Model, tea.Cmd) {
+	if msg.Seq != m.fsSeq {
+		return m, nil
+	}
+	if !m.fsDirty {
+		m.fsPending = false
+		m.fsDelay = fsDebounce
+		return m, nil
+	}
+
+	affected := append([]string(nil), m.fsPaths...)
+	m.fsDirty = false
+	m.fsPending = false
+	m.fsDelay = fsDebounce
+	m.fsPaths = nil
+
+	cmd := m.tree.Reload(affected...)
+	// Sync after the rescan so a directory that disappeared is dropped from
+	// the watch set and can be watched again if it is recreated later.
+	m.syncWatches()
+	m.invalidateFinder()
+	if m.selectedAffected(affected) {
+		// A deleted open file keeps its last good page and warning. The tree
+		// cursor may have moved to a neighbouring row, but auto-opening that
+		// file would immediately hide the warning, so drop its selection
+		// command for this reload.
+		if _, err := os.Stat(m.selected); errors.Is(err, fs.ErrNotExist) {
+			cmd = nil
+		}
+		cmd = chainCommands(cmd, m.viewer.Refresh())
+	}
+	return m, cmd
+}
+
+func (m Model) relevantChanges(paths []string) []string {
+	relevant := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+		clean := filepath.Clean(path)
+		if !m.underRoot(clean) {
+			continue
+		}
+		if watch.Noisy(m.root, clean, m.tree.Hidden()) {
+			continue
+		}
+		relevant = append(relevant, clean)
+	}
+	return relevant
+}
+
+func (m Model) underRoot(path string) bool {
+	rel, err := filepath.Rel(filepath.Clean(m.root), path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel))
+}
+
+func (m *Model) addAffected(paths []string) {
+	for _, path := range paths {
+		seen := false
+		for _, existing := range m.fsPaths {
+			if existing == path {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			m.fsPaths = append(m.fsPaths, path)
+		}
+	}
+}
+
+func (m Model) selectedAffected(paths []string) bool {
+	if m.selected == "" {
+		return false
+	}
+	selected := filepath.Clean(m.selected)
+	for _, path := range paths {
+		if filepath.Clean(path) == selected {
+			return true
+		}
+	}
+	return false
+}
+
+// syncWatches reconciles the watcher with the directories the tree has loaded.
+// Removals always run so a vanished directory cannot leave a stale watch, but
+// once an Add fails the model permanently stops adding: further directories
+// simply fall back to scan-on-expansion.
+func (m *Model) syncWatches() {
+	if m.watcher == nil {
+		return
+	}
+	if m.watched == nil {
+		m.watched = make(map[string]bool)
+	}
+
+	loaded := m.tree.LoadedDirs()
+	desired := make(map[string]bool, len(loaded))
+	for _, dir := range loaded {
+		desired[filepath.Clean(dir)] = true
+	}
+	for dir := range m.watched {
+		if desired[dir] {
+			continue
+		}
+		_ = m.watcher.Remove(dir)
+		delete(m.watched, dir)
+	}
+	if m.watchDegraded {
+		return
+	}
+
+	limit := m.watchLimit
+	if limit <= 0 {
+		limit = maxWatchedDirs
+	}
+	for _, dir := range loaded {
+		dir = filepath.Clean(dir)
+		if m.watched[dir] {
+			continue
+		}
+		if len(m.watched) >= limit {
+			continue
+		}
+		if err := m.watcher.Add(dir); err != nil {
+			m.watchDegraded = true
+			return
+		}
+		m.watched[dir] = true
+	}
+}
+
+// closeWatcher releases the watch set on quit. It is nil-safe and leaves the
+// field nil so a repeated quit path cannot close the watcher twice.
+func (m *Model) closeWatcher() {
+	if m.watcher == nil {
+		return
+	}
+	_ = m.watcher.Close()
+	m.watcher = nil
+	m.watched = nil
+}
+
 func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if m.searchPrompt {
 		return m, nil
@@ -685,16 +939,24 @@ func (m Model) handleTreeClick(x, y int) (tea.Model, tea.Cmd) {
 
 	if wasDouble {
 		m.lastClickValid = false
+		var cmd tea.Cmd
 		if row.IsDir {
-			return m, m.tree.DescendRow(index)
+			cmd = m.tree.DescendRow(index)
+		} else {
+			cmd = m.tree.SelectRow(index)
 		}
-		return m, m.tree.SelectRow(index)
+		m.syncWatches()
+		return m, cmd
 	}
 
+	var cmd tea.Cmd
 	if row.IsDir {
-		return m, m.tree.ToggleRow(index)
+		cmd = m.tree.ToggleRow(index)
+	} else {
+		cmd = m.tree.SelectRow(index)
 	}
-	return m, m.tree.SelectRow(index)
+	m.syncWatches()
+	return m, cmd
 }
 
 func (m *Model) clearClick() {

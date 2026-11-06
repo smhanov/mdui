@@ -10,6 +10,8 @@ tree on the left, read the rendered document on the right.
   width; relative, anchor, and web links are clickable.
 - **Fast by default** — asynchronous rendering, a render cache, lazy directory
   loading, and windowed views keep large folders responsive.
+- **Live updates** — saving a file re-renders it in place; new and deleted
+  markdown files appear in the tree without a restart.
 - **Mouse and keyboard** — drag the divider, wheel-scroll either pane, or use
   the full vim-friendly keymap. Press `?` for help.
 
@@ -194,6 +196,10 @@ tree_ratio = 0.3
 
 # Reserved for an "open in editor" command; not used yet.
 editor = ""
+
+# Update the tree and the open document when files change on disk. Disable
+# this on network filesystems that do not report local changes.
+live_reload = true
 ```
 
 Unknown keys are ignored, so a config written by a newer mdui still starts an
@@ -211,6 +217,7 @@ Flags override the config file:
 | `--emoji` / `--no-emoji` | force emoji rendering on or off |
 | `--hidden` | show dot-prefixed tree entries |
 | `--sort name\|mtime\|size` | tree order |
+| `--no-live-reload` | disable live filesystem updates |
 | `--version` | print the version and exit |
 
 Style precedence is **flag → config → `GLAMOUR_STYLE` → terminal background
@@ -253,6 +260,9 @@ file. Unreadable files show an inline error in the viewer.
 ## Notes and limits
 
 - Markdown files are `.md` and `.markdown`, case-insensitive.
+- Live updates watch only directories the tree has opened, never individual
+  files. Filesystem notifications do not fire on some network mounts; use
+  `live_reload = false` or `--no-live-reload` to turn the feature off there.
 - Documents over 2 MiB are not rendered automatically; press `r` to read the
   raw source.
 - Markdown tables are rendered with wrapped cells and footnote-style links.

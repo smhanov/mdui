@@ -11,6 +11,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/creack/pty v1.1.24
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/lucasb-eyer/go-colorful v1.4.1
 	github.com/muesli/cancelreader v0.2.2
 	github.com/yuin/goldmark v1.7.8

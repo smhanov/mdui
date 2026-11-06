@@ -21,6 +21,7 @@ func TestConfigRoundTrip(t *testing.T) {
 		SortBy:        "mtime",
 		TreeRatio:     0.44,
 		Editor:        "vim",
+		LiveReload:    false,
 	}
 	if err := SaveConfig(path, want); err != nil {
 		t.Fatalf("SaveConfig: %v", err)
@@ -43,6 +44,19 @@ func TestConfigUnknownKeysIgnored(t *testing.T) {
 	}
 	if got.Mouse != DefaultConfig().Mouse || got.SortBy != DefaultConfig().SortBy {
 		t.Fatalf("defaults changed by unknown keys: %+v", got)
+	}
+}
+
+func TestLiveReloadConfig(t *testing.T) {
+	if !DefaultConfig().LiveReload {
+		t.Fatal("live reload should default to on")
+	}
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("live_reload = false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := LoadConfig(path); got.LiveReload {
+		t.Fatal("live_reload = false did not disable live reload")
 	}
 }
 
@@ -75,7 +89,7 @@ func TestLoadOrCreateWritesExampleAndStylesheets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"style = \"auto\"", "mouse = true", "wrap_width = 0", "sort_by = \"name\""} {
+	for _, want := range []string{"style = \"auto\"", "mouse = true", "wrap_width = 0", "sort_by = \"name\"", "live_reload = true"} {
 		if !strings.Contains(string(data), want) {
 			t.Errorf("example config missing %q:\n%s", want, data)
 		}

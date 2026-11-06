@@ -292,6 +292,7 @@ func (m Model) openFinderSelection() (tea.Model, tea.Cmd) {
 	if !m.tree.Reveal(path) {
 		m.notice = "finder: file not visible in the tree"
 	}
+	m.syncWatches()
 	return m, m.viewer.Open(path)
 }
 
