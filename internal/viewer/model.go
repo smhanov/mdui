@@ -566,8 +566,9 @@ func (m Model) Stats() StatsMsg {
 	}
 }
 
-// WordCount counts whitespace-separated words in raw markdown. It matches
-// wc -w for the whitespace that appears in ordinary documents.
+// WordCount counts whitespace-separated words in raw markdown. It splits on
+// Unicode whitespace like strings.Fields, so an unspaced CJK phrase counts as
+// one word.
 func WordCount(raw string) int {
 	return len(strings.Fields(raw))
 }

@@ -1,9 +1,7 @@
 package viewer
 
 import (
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -11,28 +9,56 @@ import (
 	"github.com/smhanov/mdui/internal/render"
 )
 
-func TestWordCountMatchesWc(t *testing.T) {
-	text := "A short note with five words.\n\nSecond paragraph, still counting.  中文 也有 词.\n"
-	path := filepath.Join(t.TempDir(), "words.md")
-	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
-		t.Fatal(err)
+func TestWordCount(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want int
+	}{
+		{"empty", "", 0},
+		{"whitespace only", " \t\n\r\n  ", 0},
+		{"ascii", "A short note with five words.\n\nSecond paragraph, still counting.\n", 10},
+		{"cjk", "中文 也有 词.\n", 3},
+		{"mixed", "A short note with five words.\n\nSecond paragraph, still counting.  中文 也有 词.\n", 13},
+		{"punctuation does not split words", "one,two three...four five-six\n", 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := WordCount(tt.text); got != tt.want {
+				t.Errorf("WordCount(%q) = %d, want %d", tt.text, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestWordCountMatchesGNUWc cross-checks the fixture against the canonical wc
+// implementation. BSD and busybox wc tokenize this CJK text differently, so the
+// check is skipped outside GNU coreutils.
+func TestWordCountMatchesGNUWc(t *testing.T) {
+	version, err := exec.Command("wc", "--version").Output()
+	if err != nil || !strings.Contains(string(version), "GNU coreutils") {
+		t.Skip("requires GNU coreutils wc")
 	}
 
-	want := WordCount(text)
-	wc, err := exec.Command("wc", "-w", path).Output()
+	const text = "A short note with five words.\n\nSecond paragraph, still counting.  中文 也有 词.\n"
+	const want = 13
+
+	cmd := exec.Command("wc", "-w")
+	cmd.Stdin = strings.NewReader(text)
+	out, err := cmd.Output()
 	if err != nil {
-		t.Skipf("wc unavailable: %v", err)
+		t.Fatalf("wc -w: %v", err)
 	}
-	fields := strings.Fields(string(wc))
+	fields := strings.Fields(string(out))
 	if len(fields) == 0 {
-		t.Fatalf("wc output = %q", wc)
+		t.Fatalf("wc -w output = %q", out)
 	}
-	count, err := strconv.Atoi(fields[0])
+	got, err := strconv.Atoi(fields[0])
 	if err != nil {
-		t.Fatalf("wc output = %q: %v", wc, err)
+		t.Fatalf("wc -w output = %q: %v", out, err)
 	}
-	if want != count {
-		t.Fatalf("WordCount = %d, wc -w = %d", want, count)
+	if got != want {
+		t.Fatalf("wc -w = %d, want %d", got, want)
 	}
 }
 
