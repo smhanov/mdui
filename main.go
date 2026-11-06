@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"syscall"
 
@@ -16,6 +17,21 @@ import (
 	"github.com/smhanov/mdui/internal/config"
 	"github.com/smhanov/mdui/internal/render"
 )
+
+// version, commit, and date identify the build. make build stamps them at
+// link time with -ldflags "-X main.version=... -X main.commit=...
+// -X main.date=...". Left empty, versionString falls back to the build info
+// and finally to "dev", so go install and plain go build still report
+// something meaningful.
+var (
+	version = ""
+	commit  = ""
+	date    = ""
+)
+
+// readBuildInfo is a variable so tests can feed versionString fixed build
+// info instead of the test binary's own.
+var readBuildInfo = debug.ReadBuildInfo
 
 func main() {
 	var (
@@ -27,6 +43,7 @@ func main() {
 		noEmojiFlag = flag.Bool("no-emoji", false, "leave :emoji: shortcodes as written")
 		hiddenFlag  = flag.Bool("hidden", false, "show dot-prefixed entries")
 		sortFlag    = flag.String("sort", "", "tree order: name, mtime, or size")
+		versionFlag = flag.Bool("version", false, "print the version and exit")
 	)
 
 	flag.Usage = func() {
@@ -41,6 +58,13 @@ func main() {
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+
+	// Answer --version before anything touches the config, the folder, or
+	// the terminal, so it works anywhere.
+	if *versionFlag {
+		fmt.Println(versionString(version, commit, date))
+		return
+	}
 
 	if flag.NArg() > 1 {
 		flag.Usage()
@@ -138,6 +162,71 @@ func main() {
 		}
 		os.Exit(1)
 	}
+}
+
+// versionString renders the `mdui <version>` line. An injected version wins
+// verbatim; otherwise the build info supplies the module version (a tagged
+// release or pseudo-version from go install), or the VCS revision and time
+// stamped into a plain go build, or finally "dev". A known commit or date
+// renders as a suffix.
+func versionString(version, commit, date string) string {
+	if version == "" {
+		if bi, ok := readBuildInfo(); ok {
+			v := bi.Main.Version
+			if v == "" || v == "(devel)" {
+				// go build from a checkout: fall back to the
+				// stamped VCS revision and commit time.
+				var rev, when string
+				for _, s := range bi.Settings {
+					switch s.Key {
+					case "vcs.revision":
+						rev = s.Value
+					case "vcs.time":
+						when = s.Value
+					}
+				}
+				if rev != "" {
+					v = rev
+					if date == "" {
+						date = when
+					}
+				}
+			}
+			if v != "" && v != "(devel)" {
+				version = v
+			}
+		}
+		if version == "" {
+			version = "dev"
+		}
+	}
+
+	line := "mdui " + version
+	var suffix []string
+	if commit != "" {
+		suffix = append(suffix, "commit "+shortCommit(commit))
+	}
+	if date != "" {
+		suffix = append(suffix, "built "+date)
+	}
+	if len(suffix) > 0 {
+		line += " (" + strings.Join(suffix, ", ") + ")"
+	}
+	return line
+}
+
+// shortCommit trims a full VCS hash to a nine-character prefix; short hashes
+// from git rev-parse --short pass through unchanged.
+func shortCommit(commit string) string {
+	if len(commit) < 40 {
+		return commit
+	}
+	for _, c := range commit {
+		if !strings.ContainsRune("0123456789abcdefABCDEF", c) {
+			return commit
+		}
+	}
+	return commit[:9]
 }
 
 // loadConfig creates the first-run config directory and falls back to the

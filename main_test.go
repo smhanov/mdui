@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"testing"
@@ -43,6 +44,68 @@ func TestValidateDir(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
 	if err := validateDir(locked); err == nil {
 		t.Fatal("validateDir(unreadable) = nil, want error")
+	}
+}
+
+// withBuildInfo swaps in fixed build info for versionString's fallbacks so
+// assertions do not depend on how the test binary itself was built.
+func withBuildInfo(t *testing.T, bi *debug.BuildInfo) {
+	t.Helper()
+	prev := readBuildInfo
+	readBuildInfo = func() (*debug.BuildInfo, bool) { return bi, bi != nil }
+	t.Cleanup(func() { readBuildInfo = prev })
+}
+
+func TestVersionString(t *testing.T) {
+	// An injected version wins verbatim, with commit and date as a suffix.
+	got := versionString("v0.1.0", "abc1234", "2026-11-05T00:00:00Z")
+	if want := "mdui v0.1.0 (commit abc1234, built 2026-11-05T00:00:00Z)"; got != want {
+		t.Fatalf("versionString(injected) = %q, want %q", got, want)
+	}
+
+	// A full hash shortens; a short one and a missing date pass through.
+	got = versionString("v0.2.0", "0123456789abcdef0123456789abcdef01234567", "")
+	if want := "mdui v0.2.0 (commit 012345678)"; got != want {
+		t.Fatalf("versionString(full hash) = %q, want %q", got, want)
+	}
+	got = versionString("dev", "abc1234", "")
+	if want := "mdui dev (commit abc1234)"; got != want {
+		t.Fatalf("versionString(short hash) = %q, want %q", got, want)
+	}
+	got = versionString("dev", "", "2026-11-05T00:00:00Z")
+	if want := "mdui dev (built 2026-11-05T00:00:00Z)"; got != want {
+		t.Fatalf("versionString(date only) = %q, want %q", got, want)
+	}
+
+	// go install builds report the tagged module version as-is.
+	withBuildInfo(t, &debug.BuildInfo{Main: debug.Module{Version: "v0.1.0"}})
+	if got := versionString("", "", ""); got != "mdui v0.1.0" {
+		t.Fatalf("versionString(tagged module) = %q, want %q", got, "mdui v0.1.0")
+	}
+
+	// A (devel) version with no VCS info falls back to dev.
+	withBuildInfo(t, &debug.BuildInfo{Main: debug.Module{Version: "(devel)"}})
+	if got := versionString("", "", ""); got != "mdui dev" {
+		t.Fatalf("versionString(devel, no vcs) = %q, want %q", got, "mdui dev")
+	}
+
+	// Plain go build from a checkout: the stamped revision and commit time.
+	withBuildInfo(t, &debug.BuildInfo{
+		Main: debug.Module{Version: "(devel)"},
+		Settings: []debug.BuildSetting{
+			{Key: "vcs.revision", Value: "600d4adf75ac0123456789abcdef0123456789ab"},
+			{Key: "vcs.time", Value: "2026-11-05T17:56:37Z"},
+		},
+	})
+	got = versionString("", "", "")
+	if want := "mdui 600d4adf75ac0123456789abcdef0123456789ab (built 2026-11-05T17:56:37Z)"; got != want {
+		t.Fatalf("versionString(vcs) = %q, want %q", got, want)
+	}
+
+	// Missing build info entirely also lands on dev.
+	withBuildInfo(t, nil)
+	if got := versionString("", "", ""); got != "mdui dev" {
+		t.Fatalf("versionString(no build info) = %q, want %q", got, "mdui dev")
 	}
 }
 

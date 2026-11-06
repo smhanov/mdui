@@ -36,6 +36,11 @@ Optionally install that local build system-wide:
 sudo install -m755 mdui /usr/local/bin/mdui
 ```
 
+However you install it, `mdui --version` reports the build you are running.
+`go install github.com/smhanov/mdui@v0.1.0` pins a tagged release, and
+`make build` in a checkout embeds the git version, commit, and build date
+instead of a plain `go build`'s revision.
+
 ## Usage
 
 ```sh
@@ -206,6 +211,7 @@ Flags override the config file:
 | `--emoji` / `--no-emoji` | force emoji rendering on or off |
 | `--hidden` | show dot-prefixed tree entries |
 | `--sort name\|mtime\|size` | tree order |
+| `--version` | print the version and exit |
 
 Style precedence is **flag → config → `GLAMOUR_STYLE` → terminal background
 detection**. `auto` means "fall through to the next source".
