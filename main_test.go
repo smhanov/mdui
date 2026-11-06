@@ -92,3 +92,37 @@ func TestUserTTYError(t *testing.T) {
 		t.Fatal("userTTYError(os.ErrNotExist) = ok true, want false")
 	}
 }
+
+func TestReplayInput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keys")
+	if err := os.WriteFile(path, []byte("jk"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	// The replayed prefix comes out first, then the underlying file; reads
+	// smaller than the pending bytes split across calls.
+	r := newReplayInput(f, []byte("qp"))
+	buf := make([]byte, 1)
+	var got strings.Builder
+	for {
+		n, err := r.Read(buf)
+		got.Write(buf[:n])
+		if err != nil {
+			break
+		}
+	}
+	if got.String() != "qpjk" {
+		t.Fatalf("replayInput produced %q, want %q", got.String(), "qpjk")
+	}
+
+	// The wrapper keeps the real descriptor so bubbletea can put the tty
+	// into raw mode.
+	if r.Fd() != f.Fd() {
+		t.Fatal("replayInput lost the underlying file descriptor")
+	}
+}

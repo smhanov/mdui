@@ -99,13 +99,25 @@ func main() {
 	if set["style"] {
 		cliStyle = *styleFlag
 	}
-	docStyle := config.ResolveStyle(cliStyle, cfg.Style, os.Getenv, render.BackgroundIsDark, stylesDir)
-
 	statePath, err := config.StatePath()
 	if err != nil {
 		statePath = ""
 	}
 	ratio := config.StartupTreeRatio(cfg, statePath)
+
+	// Probe the terminal background only if the style precedence actually
+	// needs detection: an explicit flag, config, or GLAMOUR_STYLE skips the
+	// query entirely. The probe is bounded, so a terminal that never
+	// answers capability queries cannot stall startup or swallow
+	// keystrokes typed while mdui starts; whatever it read is replayed
+	// into the program's input below so no typed key is lost.
+	var probeConsumed []byte
+	hasDark := func() bool {
+		dark, consumed := render.ProbeBackground(os.Stdin, os.Stdout)
+		probeConsumed = consumed
+		return dark
+	}
+	docStyle := config.ResolveStyle(cliStyle, cfg.Style, os.Getenv, hasDark, stylesDir)
 
 	model := app.New(
 		root,
@@ -114,7 +126,11 @@ func main() {
 		app.WithTreeRatio(ratio),
 		app.WithStatePath(statePath),
 	)
-	if _, err := tea.NewProgram(model).Run(); err != nil {
+	opts := []tea.ProgramOption{}
+	if len(probeConsumed) > 0 {
+		opts = append(opts, tea.WithInput(newReplayInput(os.Stdin, probeConsumed)))
+	}
+	if _, err := tea.NewProgram(model, opts...).Run(); err != nil {
 		if msg, ok := userTTYError(err); ok {
 			fmt.Fprintf(os.Stderr, "mdui: %s\n", msg)
 		} else {
@@ -182,4 +198,27 @@ func userTTYError(err error) (string, bool) {
 		return msg, true
 	}
 	return "", false
+}
+
+// replayInput is the program's input reader: it first returns the bytes the
+// background probe consumed from the terminal, then keeps reading stdin
+// directly. Keystrokes typed while the probe was waiting therefore reach
+// the app instead of being dropped. Embedding the file keeps bubbletea's
+// raw-mode setup working, which needs the real file descriptor.
+type replayInput struct {
+	*os.File
+	pending []byte
+}
+
+func newReplayInput(in *os.File, replay []byte) *replayInput {
+	return &replayInput{File: in, pending: replay}
+}
+
+func (r *replayInput) Read(p []byte) (int, error) {
+	if len(r.pending) > 0 {
+		n := copy(p, r.pending)
+		r.pending = r.pending[n:]
+		return n, nil
+	}
+	return r.File.Read(p)
 }

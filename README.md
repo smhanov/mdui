@@ -134,6 +134,27 @@ set -g mouse on
 Without it, every keyboard binding still works. Holding `shift` also bypasses
 mouse capture in terminals that support the convention.
 
+### Troubleshooting silent terminals
+
+mdui asks the terminal one short question at startup — what background color
+it has — so `style = "auto"` can pick a stylesheet. Terminals answer in
+milliseconds. A few environments never answer at all: terminals recorded with
+`script`, `expect` scripts, serial consoles, and some CI pty wrappers. In
+those, mdui used to sit on a blank screen for seconds, and keys typed during
+that wait could vanish.
+
+mdui now bounds the question: if nothing answers within half a second it
+carries on with the dark stylesheet, and keys typed in the meantime are held
+and replayed once the interface is up. The screen paints immediately after.
+
+If that fallback guesses your colors wrong on a link so slow that replies
+take longer than the budget, set an explicit style to skip the question
+entirely:
+
+```sh
+mdui --style mdui-light
+```
+
 ## Configuration
 
 Preferences live in `~/.config/mdui/config.toml` (honouring

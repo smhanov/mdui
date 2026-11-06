@@ -11,7 +11,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	glamour "charm.land/glamour/v2"
 	"charm.land/glamour/v2/styles"
-	"charm.land/lipgloss/v2"
 
 	"github.com/smhanov/mdui/internal/style"
 )
@@ -76,11 +75,6 @@ func ResolveStylePrecedence(cli, config Style, getenv func(string) string, hasDa
 		return MduiLight
 	}
 	return MduiDark
-}
-
-// BackgroundIsDark reports whether the terminal has a dark background.
-func BackgroundIsDark() bool {
-	return lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
 }
 
 // RenderedMsg is the result of a render, raw-load, or size-check job. RawOnly
