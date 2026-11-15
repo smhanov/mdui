@@ -3,7 +3,6 @@
 ## Todo
 | Priority | ID | Description / plan | Notes |
 | --- | --- | --- | --- |
-| P2 | T016 | Type-to-search in the file tree: bare typing fuzzy-jumps to the best visible row; arrows/click/esc end the session — [plan](T016-tree-type-to-search.md) | ready |
 
 ## In Progress
 | Priority | ID | Description / plan | Notes |
@@ -16,6 +15,7 @@
 ## Done
 | Priority | ID | Description / plan | Notes |
 | --- | --- | --- | --- |
+| P2 | T016 | Type-to-search in the file tree: bare typing fuzzy-jumps to the best visible row; arrows/click/esc end the session — [plan](T016-tree-type-to-search.md) | completed=2026-11-15 |
 | P2 | T015 | Thin draggable scrollbars on the tree and viewer right edges, with proportional thumb and mouse drag — [plan](T015-scrollbars.md) | completed=2026-11-15 |
 | P2 | T014 | Live filesystem updates for file tree + open document — [plan](T014-live-fs-updates.md) | completed=2026-11-06 |
 | P2 | T013 | Fix TestWordCountMatchesWc failing under busybox wc (Alpine Linux) — [plan](T013-linux-wc-wordcount-test.md) | completed=2026-11-06 |

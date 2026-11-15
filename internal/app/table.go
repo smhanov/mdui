@@ -57,6 +57,7 @@ func tableLabel(number int, table mdutil.Table) string {
 // either opens the table under the viewport or offers a picker when the choice
 // is ambiguous or the viewport does not intersect a table.
 func (m Model) openTableOverlay() (tea.Model, tea.Cmd) {
+	m.cancelTreeSearch(false)
 	m.tablePriorScroll = m.viewer.ScrollOffset()
 	m.notice = ""
 	if m.selected == "" {

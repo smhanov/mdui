@@ -28,6 +28,7 @@ const (
 // openHelp renders the embedded cheatsheet at the current width and activates
 // the overlay.
 func (m Model) openHelp() Model {
+	m.cancelTreeSearch(false)
 	width := m.helpContentWidth()
 	body, err := render.RenderBytes(style.HelpMarkdown(), width, render.Options{
 		Style: m.docStyle,

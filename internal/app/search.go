@@ -10,6 +10,7 @@ import (
 // startSearch opens the status-bar prompt for the selected document. Starting
 // a new search discards any previous query and highlights.
 func (m Model) startSearch() (tea.Model, tea.Cmd) {
+	m.cancelTreeSearch(false)
 	if m.selected == "" {
 		m.notice = "no document selected"
 		return m, nil

@@ -101,6 +101,11 @@ type Model struct {
 	helpBody        string
 	helpWidth       int
 	searchPrompt    bool
+	treeSearching   bool
+	treeQuery       string
+	treeOrigin      int
+	treeMatches     int
+	treeMatchOK     bool
 	mouse           bool
 	dragging        bool
 	scrollPane      paneRegion
@@ -458,6 +463,16 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleSearchPromptKey(msg)
 	}
 
+	if m.treeSearching {
+		next, cmd, handled := m.handleTreeSearchKey(msg)
+		if handled {
+			return next, cmd
+		}
+		m = next
+	} else if m.canStartTreeSearch(msg) {
+		return m.startTreeSearch(msg)
+	}
+
 	m.notice = ""
 	if msg.String() == "enter" && m.focus == FocusViewer {
 		return m.followVisibleLink()
@@ -490,6 +505,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "m":
 		return m.toggleMouse()
 	case "tab", "shift+tab":
+		m.cancelTreeSearch(false)
 		if m.focus == FocusTree {
 			m.focus = FocusViewer
 		} else {
@@ -763,6 +779,7 @@ func (m Model) handleFsTick(msg fsTickMsg) (tea.Model, tea.Cmd) {
 	m.fsDelay = fsDebounce
 	m.fsPaths = nil
 
+	m.cancelTreeSearch(false)
 	cmd := m.tree.Reload(affected...)
 	// Sync after the rescan so a directory that disappeared is dropped from
 	// the watch set and can be watched again if it is recreated later.
@@ -895,6 +912,7 @@ func (m *Model) closeWatcher() {
 }
 
 func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	m.cancelTreeSearch(false)
 	if m.searchPrompt {
 		return m, nil
 	}
@@ -1057,6 +1075,7 @@ func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) 
 }
 
 func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
+	m.cancelTreeSearch(false)
 	if m.searchPrompt || !m.mouse || m.overlay != overlayNone {
 		return m, nil
 	}
@@ -1175,6 +1194,9 @@ func (m Model) statusLeft() string {
 	if m.searchPrompt {
 		return "/" + m.viewer.SearchQuery() + "▏"
 	}
+	if m.treeSearching {
+		return "find: " + m.treeQuery + "▏"
+	}
 	if m.selected == "" {
 		return "no file selected"
 	}
@@ -1202,6 +1224,16 @@ func (m Model) statusRight() string {
 	}
 	if m.searchPrompt {
 		return m.searchPromptStatus()
+	}
+	if m.treeSearching {
+		switch {
+		case m.treeQuery == "":
+			return "type to find · esc cancel"
+		case !m.treeMatchOK || m.treeMatches == 0:
+			return "no matches · esc cancel"
+		default:
+			return fmt.Sprintf("%d %s · esc cancel", m.treeMatches, plural(m.treeMatches, "match", "matches"))
+		}
 	}
 	if m.viewer.SearchActive() {
 		return m.searchCommittedStatus()

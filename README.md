@@ -71,6 +71,7 @@ from `~/.config/mdui/` (or `$XDG_CONFIG_HOME/mdui/`); see
 | `r` | toggle raw markdown in the viewer |
 | `T` | open the table under the viewport at full width; any key closes |
 | `f` | fuzzy-find a markdown file; `Enter` opens it and reveals it in the tree |
+| Type in the tree | jump to the best visible match; arrows, click, or `Esc` end the search |
 | `/` | search the document; `Enter` jumps, `Esc` cancels |
 | `n` / `N` | next / previous search match (wraps around) |
 | `.` | show or hide dot-prefixed files in the tree |
@@ -105,6 +106,14 @@ the hidden-files setting; toggling `.` rebuilds it the next time the finder
 opens. Other overlays take precedence: `f` is ignored while help or the table
 picker is open, and the full-width table overlay consumes any key (including
 `f`) to close.
+
+With the tree focused, typing a character that is not already a command starts
+a live search through the visible tree rows; each character jumps to the best
+match, and `Backspace` edits the query. Arrow/page keys, `Enter`, a mouse click
+or wheel end the session, while `Esc` restores the starting cursor. Keys already
+bound to commands (such as `j`, `f`, `?`, `/`, and `q`) keep their normal action
+when no search is active; use `f` to find a name that starts with one of them.
+Unlike `f`, bare typing searches only rows currently visible in the tree.
 
 While the finder is open it captures every key: `q`, `?`, `/` and spaces are
 query text, `ctrl+c` closes like `Esc`, and mouse events are ignored. The query

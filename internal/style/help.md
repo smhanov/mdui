@@ -13,12 +13,11 @@
 | `/` | search document | `n` `N` | next / prev |
 | `enter` | footnote link | `double-click` | first child |
 
-`/` searches: `enter` jumps, `n`/`N` cycle with wrap, `esc` clears. Matching
-is literal and smart-case; `r` re-applies it to raw markdown.
+Typing in tree finds rows; arrows/click/wheel/esc end; keys stay bound.
+/ searches literal smart-case text; enter jumps, n/N cycle, esc clears; r
+reapplies to raw.
 
-`f` finds files: type to filter paths, `↑`/`↓` or `ctrl+k`/`ctrl+j` choose,
-`enter` opens and reveals, `esc` closes. Matching is case-insensitive and
-path-aware.
+`f` path-aware fuzzy find: type filters, arrows choose, enter opens, esc closes.
 
 **Mouse:** click to preview or expand; drag the divider; the wheel scrolls the
 pane under the pointer. Thin scrollbar: click track / drag thumb. Table

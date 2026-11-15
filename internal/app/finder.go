@@ -40,6 +40,7 @@ func finderIndexCmd(seq uint64, root string, showHidden bool, build finder.Build
 // openFinder resets the query, reuses a valid cached index, joins an in-flight
 // build for the same hidden setting, or starts one in the background.
 func (m Model) openFinder() (tea.Model, tea.Cmd) {
+	m.cancelTreeSearch(false)
 	hidden := m.tree.Hidden()
 	m.notice = ""
 	m.overlay = overlayFinder
