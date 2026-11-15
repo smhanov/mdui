@@ -21,7 +21,7 @@ is literal and smart-case; `r` re-applies it to raw markdown.
 path-aware.
 
 **Mouse:** click to preview or expand; drag the divider; the wheel scrolls the
-pane under the pointer. Table footnotes are clickable; remote URLs ask `y`/`n`.
-Hold **shift** for native selection.
+pane under the pointer. Thin scrollbar: click track / drag thumb. Table
+footnotes are clickable; remote URLs ask `y`/`n`. Hold **shift** for selection.
 
 `?` or `esc` to close this help.

@@ -18,6 +18,7 @@ import (
 	"github.com/smhanov/mdui/internal/finder"
 	"github.com/smhanov/mdui/internal/mdutil"
 	"github.com/smhanov/mdui/internal/render"
+	"github.com/smhanov/mdui/internal/scrollbar"
 	"github.com/smhanov/mdui/internal/style"
 	"github.com/smhanov/mdui/internal/tree"
 	"github.com/smhanov/mdui/internal/viewer"
@@ -102,6 +103,8 @@ type Model struct {
 	searchPrompt    bool
 	mouse           bool
 	dragging        bool
+	scrollPane      paneRegion
+	scrollGrab      int
 	dragSeq         uint64
 	dragTickPending bool
 	lastTreeW       int
@@ -462,6 +465,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "q", "ctrl+c":
+		m.scrollPane = regionOutside
 		m.closeWatcher()
 		m.saveState()
 		return m, tea.Quit
@@ -607,6 +611,8 @@ const (
 	regionTree
 	regionDivider
 	regionViewer
+	regionTreeScroll
+	regionViewerScroll
 )
 
 // regionAt maps terminal coordinates to the pane or divider under the cursor.
@@ -625,6 +631,12 @@ func (m Model) regionAt(x, y int) paneRegion {
 	}
 
 	treeW, _, _ := SplitWidths(innerW, m.ratio)
+	if contentX == treeW-1 && m.tree.ScrollState().Shown() {
+		return regionTreeScroll
+	}
+	if contentX == innerW-1 && m.viewer.ScrollState().Shown() {
+		return regionViewerScroll
+	}
 	switch {
 	case contentX >= treeW-DividerHitSlop && contentX <= treeW+DividerHitSlop:
 		return regionDivider
@@ -902,6 +914,12 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.regionAt(mouse.X, mouse.Y) {
+	case regionTreeScroll:
+		m.clearClick()
+		return m.startScrollDrag(regionTreeScroll, mouse.Y)
+	case regionViewerScroll:
+		m.clearClick()
+		return m.startScrollDrag(regionViewerScroll, mouse.Y)
 	case regionDivider:
 		m.clearClick()
 		m.dragging = true
@@ -917,6 +935,39 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		m.clearClick()
 		return m, nil
 	}
+}
+
+func (m Model) startScrollDrag(pane paneRegion, y int) (tea.Model, tea.Cmd) {
+	state := m.scrollState(pane)
+	start, size := state.Thumb()
+	row := y - m.bodyTop()
+	grab := 0
+	if row >= start && row < start+size {
+		grab = row - start
+	} else {
+		grab = size / 2
+	}
+	m.scrollPane = pane
+	m.scrollGrab = grab
+	if row < start || row >= start+size {
+		cmd := m.scrollCommand(pane, state.OffsetForThumbStart(row-grab))
+		return m, cmd
+	}
+	return m, nil
+}
+
+func (m Model) scrollState(pane paneRegion) scrollbar.State {
+	if pane == regionTreeScroll {
+		return m.tree.ScrollState()
+	}
+	return m.viewer.ScrollState()
+}
+
+func (m *Model) scrollCommand(pane paneRegion, offset int) tea.Cmd {
+	if pane == regionTreeScroll {
+		return m.tree.ScrollTo(offset)
+	}
+	return m.viewer.ScrollTo(offset)
 }
 
 func (m Model) handleTreeClick(x, y int) (tea.Model, tea.Cmd) {
@@ -964,7 +1015,18 @@ func (m *Model) clearClick() {
 }
 
 func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
-	if m.searchPrompt || !m.mouse || m.overlay != overlayNone || !m.dragging {
+	if m.searchPrompt || !m.mouse || m.overlay != overlayNone {
+		return m, nil
+	}
+	if m.scrollPane != regionOutside {
+		row := msg.Mouse().Y - m.bodyTop()
+		row = min(max(row, 0), max(0, m.paneHeight()-1))
+		state := m.scrollState(m.scrollPane)
+		offset := state.OffsetForThumbStart(row - m.scrollGrab)
+		cmd := m.scrollCommand(m.scrollPane, offset)
+		return m, cmd
+	}
+	if !m.dragging {
 		return m, nil
 	}
 	innerW := m.innerWidth()
@@ -976,7 +1038,14 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) {
-	if m.searchPrompt || !m.dragging {
+	if m.searchPrompt {
+		return m, nil
+	}
+	if m.scrollPane != regionOutside {
+		m.scrollPane = regionOutside
+		return m, nil
+	}
+	if !m.dragging {
 		return m, nil
 	}
 
@@ -997,14 +1066,14 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.regionAt(mouse.X, mouse.Y) {
-	case regionTree:
+	case regionTree, regionTreeScroll:
 		switch mouse.Button {
 		case tea.MouseWheelUp:
 			return m, m.tree.Scroll(-treeWheelRows)
 		case tea.MouseWheelDown:
 			return m, m.tree.Scroll(treeWheelRows)
 		}
-	case regionViewer:
+	case regionViewer, regionViewerScroll:
 		var cmd tea.Cmd
 		m.viewer, cmd = m.viewer.Update(msg)
 		return m, cmd
@@ -1018,6 +1087,7 @@ func (m Model) toggleMouse() (tea.Model, tea.Cmd) {
 	m.mouse = !m.mouse
 	if !m.mouse {
 		m.dragging = false
+		m.scrollPane = regionOutside
 		m.dragTickPending = false
 	}
 	return m, m.resizePanes()

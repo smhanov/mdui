@@ -6,7 +6,31 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
+
+func TestViewScrollbar(t *testing.T) {
+	root := t.TempDir()
+	for i := range 20 {
+		writeNote(t, root, fmt.Sprintf("note-%02d.md", i))
+	}
+	m := New(root)
+	m.SetHeight(5)
+	got := ansi.Strip(m.View(20, 5))
+	lines := strings.Split(got, "\n")
+	if len(lines) != 5 || lipgloss.Width(lines[0]) != 20 {
+		t.Fatalf("render dimensions = %d lines, width %d", len(lines), lipgloss.Width(lines[0]))
+	}
+	for _, line := range lines {
+		if last := []rune(line)[len([]rune(line))-1]; last != '│' && last != '▐' {
+			t.Fatalf("last cell %q is not a scrollbar glyph in %q", last, line)
+		}
+	}
+	short := New(t.TempDir())
+	if line := ansi.Strip(short.View(20, 5)); strings.HasSuffix(strings.Split(line, "\n")[0], "│") {
+		t.Fatalf("short tree unexpectedly rendered a scrollbar: %q", line)
+	}
+}
 
 func TestViewRendersMarkers(t *testing.T) {
 	m := treeFixture(t)

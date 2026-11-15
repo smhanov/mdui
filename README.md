@@ -13,7 +13,8 @@ tree on the left, read the rendered document on the right.
 - **Live updates** — saving a file re-renders it in place; new and deleted
   markdown files appear in the tree without a restart.
 - **Mouse and keyboard** — drag the divider, wheel-scroll either pane, or use
-  the full vim-friendly keymap. Press `?` for help.
+  the full vim-friendly keymap; thin scrollbars show position and can be
+  dragged. Press `?` for help.
 
 ## Install
 
@@ -121,6 +122,7 @@ While mouse capture is on:
 | double-click a directory | expand it and move to its first child |
 | drag the divider | resize the panes |
 | wheel over a pane | scroll that pane |
+| click scrollbar track / drag thumb | jump to / drag through the pane |
 | click a table footnote `[n]` | follow the link (relative `.md` in-app, `#anchor` scroll, http(s) after `y` confirmation) |
 | shift-click / shift-drag | pass through to the terminal's native selection |
 

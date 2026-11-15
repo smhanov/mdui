@@ -37,6 +37,18 @@ var (
 	Pane = lipgloss.NewStyle().
 		Padding(0, 1)
 
+	// PaneScroll keeps the pane's left inset while reserving its right edge for a scrollbar.
+	PaneScroll = lipgloss.NewStyle().
+			PaddingLeft(1)
+
+	// ScrollTrack is the dim background of a visible scrollbar.
+	ScrollTrack = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(muted))
+
+	// ScrollThumb is the brighter draggable scrollbar thumb.
+	ScrollThumb = lipgloss.NewStyle().
+			Bold(true)
+
 	// StatusBar is the reverse-video base for the bottom row.
 	StatusBar = lipgloss.NewStyle().
 			Reverse(true)

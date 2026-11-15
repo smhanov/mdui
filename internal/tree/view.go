@@ -6,6 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/smhanov/mdui/internal/scrollbar"
 	"github.com/smhanov/mdui/internal/style"
 )
 
@@ -13,6 +14,16 @@ import (
 func (m Model) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
+	}
+
+	state := m.ScrollState()
+	if height != state.Height {
+		state.Height = height
+		state.Visible = min(height, len(m.rows))
+		state.Offset = m.windowStart(height)
+	}
+	if state.Shown() {
+		return m.viewWithScrollbar(width, height, state)
 	}
 
 	innerWidth := width - style.Pane.GetHorizontalFrameSize()
@@ -26,6 +37,27 @@ func (m Model) View(width, height int) string {
 		Height(height).
 		MaxHeight(height).
 		Render(strings.Join(lines, "\n"))
+}
+
+func (m Model) viewWithScrollbar(width, height int, state scrollbar.State) string {
+	textWidth := max(1, width-2)
+	lines := m.visibleLines(textWidth, height)
+	start, size := state.Thumb()
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	for i := 0; i < height; i++ {
+		line := lines[i]
+		if pad := textWidth - lipgloss.Width(line); pad > 0 {
+			line += strings.Repeat(" ", pad)
+		}
+		glyph := style.ScrollTrack.Render("│")
+		if i >= start && i < start+size {
+			glyph = style.ScrollThumb.Render("▐")
+		}
+		lines[i] = line + glyph
+	}
+	return style.PaneScroll.Width(width).Height(height).MaxHeight(height).Render(strings.Join(lines, "\n"))
 }
 
 func (m Model) visibleLines(width, height int) []string {

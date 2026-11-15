@@ -12,9 +12,11 @@ import (
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/smhanov/mdui/internal/docsearch"
 	"github.com/smhanov/mdui/internal/render"
+	"github.com/smhanov/mdui/internal/scrollbar"
 	"github.com/smhanov/mdui/internal/style"
 )
 
@@ -402,12 +404,46 @@ func (m Model) View(width, height int) string {
 
 	m.viewport.SetWidth(max(1, m.innerWidth(width)))
 	m.viewport.SetHeight(max(1, m.innerHeight(height)))
+	state := m.ScrollState()
+	if state.Shown() {
+		lines := strings.Split(m.viewport.View(), "\n")
+		start, size := state.Thumb()
+		for len(lines) < height {
+			lines = append(lines, "")
+		}
+		for i := 0; i < height; i++ {
+			line := lines[i]
+			if pad := max(0, width-2-lipgloss.Width(line)); pad > 0 {
+				line += strings.Repeat(" ", pad)
+			}
+			glyph := style.ScrollTrack.Render("│")
+			if i >= start && i < start+size {
+				glyph = style.ScrollThumb.Render("▐")
+			}
+			lines[i] = line + glyph
+		}
+		return style.PaneScroll.Width(width).Height(height).MaxHeight(height).Render(strings.Join(lines, "\n"))
+	}
 
-	return style.Pane.
-		Width(width).
-		Height(height).
-		MaxHeight(height).
-		Render(m.viewport.View())
+	m.viewport.SetWidth(max(1, m.innerWidth(width)))
+	m.viewport.SetHeight(max(1, m.innerHeight(height)))
+	return style.Pane.Width(width).Height(height).MaxHeight(height).Render(m.viewport.View())
+}
+
+// ScrollState reports the wrapped viewport geometry used by the scrollbar.
+func (m Model) ScrollState() scrollbar.State {
+	return scrollbar.State{
+		Total:   m.viewport.TotalLineCount(),
+		Visible: m.viewport.VisibleLineCount(),
+		Offset:  m.viewport.YOffset(),
+		Height:  m.viewport.Height(),
+	}
+}
+
+// ScrollTo updates the viewport offset and status-bar percentage.
+func (m *Model) ScrollTo(offset int) tea.Cmd {
+	m.viewport.SetYOffset(offset)
+	return m.statsCommand(true)
 }
 
 // Content returns the text currently projected into the viewport. While a

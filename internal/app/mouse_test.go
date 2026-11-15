@@ -64,6 +64,66 @@ func TestDividerRegions(t *testing.T) {
 	}
 }
 
+func TestTreeScrollbarClickDragAndRelease(t *testing.T) {
+	root := t.TempDir()
+	for i := range 60 {
+		if err := os.WriteFile(filepath.Join(root, fmt.Sprintf("note-%02d.md", i)), []byte("# note\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m, _ := newSizedModel(t, root)
+	state := m.tree.ScrollState()
+	if !state.Shown() {
+		t.Fatal("tree scrollbar is not shown for long content")
+	}
+	treeW, _, _ := SplitWidths(m.innerWidth(), m.ratio)
+	scrollX := m.frameLeft() + treeW - 1
+	topY := m.bodyTop()
+	if got := m.regionAt(scrollX, topY); got != regionTreeScroll {
+		t.Fatalf("tree scrollbar hit region = %v, want scrollbar", got)
+	}
+
+	ratio := m.ratio
+	next, _ := m.Update(tea.MouseClickMsg{X: scrollX, Y: topY + m.paneHeight() - 1, Button: tea.MouseLeft})
+	m = next.(Model)
+	if m.scrollPane != regionTreeScroll || m.tree.ScrollState().Offset == 0 {
+		t.Fatal("track click did not start scrollbar drag at a scrolled offset")
+	}
+	next, _ = m.Update(tea.MouseMotionMsg{X: scrollX, Y: topY, Button: tea.MouseLeft})
+	m = next.(Model)
+	if got := m.tree.ScrollState().Offset; got != 0 {
+		t.Fatalf("drag to top offset = %d, want 0", got)
+	}
+	next, _ = m.Update(tea.MouseReleaseMsg{X: scrollX, Y: topY, Button: tea.MouseLeft})
+	m = next.(Model)
+	if m.scrollPane != regionOutside {
+		t.Fatal("release did not end scrollbar drag")
+	}
+	next, _ = m.Update(tea.MouseClickMsg{X: scrollX, Y: topY, Button: tea.MouseLeft})
+	m = next.(Model)
+	if m.tree.ScrollState().Offset != 0 {
+		t.Fatal("clicking the thumb jumped the tree")
+	}
+	next, _ = m.Update(tea.MouseMotionMsg{X: scrollX, Y: topY + m.paneHeight() - 1, Button: tea.MouseLeft})
+	m = next.(Model)
+	bottomState := m.tree.ScrollState()
+	if got, want := bottomState.Offset, bottomState.Total-bottomState.Visible; got != want {
+		t.Fatalf("drag to bottom offset = %d, want %d", got, want)
+	}
+	next, _ = m.Update(tea.MouseReleaseMsg{X: scrollX, Y: topY + m.paneHeight() - 1, Button: tea.MouseLeft})
+	m = next.(Model)
+	if m.ratio != ratio {
+		t.Fatalf("scrollbar drag changed split ratio from %v to %v", ratio, m.ratio)
+	}
+
+	for _, x := range []int{m.frameLeft() + treeW, m.frameLeft() + treeW + 1} {
+		next, _ = m.Update(tea.MouseClickMsg{X: x, Y: topY, Button: tea.MouseLeft})
+		if !next.(Model).dragging {
+			t.Fatalf("divider click at column %d did not start splitter drag", x)
+		}
+	}
+}
+
 func TestMouseDragDebounceAndFinalRender(t *testing.T) {
 	m := sizedTestModel(t)
 	treeW, _, _ := SplitWidths(m.innerWidth(), m.ratio)

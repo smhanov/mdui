@@ -1,13 +1,58 @@
 package viewer
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/smhanov/mdui/internal/render"
 )
+
+func TestViewerScrollbarRenderAndScrollTo(t *testing.T) {
+	f := &fakeRenderer{raw: "many lines"}
+	f.render = func(request) string {
+		var b strings.Builder
+		for i := range 80 {
+			fmt.Fprintf(&b, "line %02d\n", i)
+		}
+		return b.String()
+	}
+	m := newTestViewer(f)
+	m = apply(t, m, m.SetSize(40, 5))
+	m = apply(t, m, m.Open("long.md"))
+	state := m.ScrollState()
+	if !state.Shown() {
+		t.Fatalf("long document scroll state = %+v, want visible bar", state)
+	}
+	out := ansi.Strip(m.View(40, 5))
+	lines := strings.Split(out, "\n")
+	if len(lines) != 5 || lipgloss.Width(out) != 40 {
+		t.Fatalf("render dimensions = %dx%d, want 40x5", lipgloss.Width(out), len(lines))
+	}
+	for _, line := range lines {
+		last := []rune(line)[len([]rune(line))-1]
+		if last != '│' && last != '▐' {
+			t.Fatalf("last cell %q is not a scrollbar glyph in %q", last, line)
+		}
+	}
+	cmd := m.ScrollTo(75)
+	if cmd == nil || m.ScrollOffset() == 0 {
+		t.Fatal("ScrollTo did not move the viewport and refresh stats")
+	}
+	msg, ok := cmd().(StatsMsg)
+	if !ok || msg.ScrollPct == 0 {
+		t.Fatalf("ScrollTo stats = %#v, want a nonzero scroll percentage", msg)
+	}
+	m.viewport.SetContent("short")
+	m.viewport.GotoTop()
+	if state := m.ScrollState(); state.Shown() {
+		t.Fatalf("short content scroll state = %+v, want no bar", state)
+	}
+}
 
 type request struct {
 	reqID uint64
