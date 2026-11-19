@@ -3,7 +3,6 @@
 ## Todo
 | Priority | ID | Description / plan | Notes |
 | --- | --- | --- | --- |
-| P2 | T018 | Tag v0.1.0 so the README's `go install @v0.1.0` works — [plan](T018-tag-v0.1.0.md) | github=smhanov/mdui#3; user deferred tag 2026-11-06 (T011) — confirm before pushing; updated=2026-11-18 |
 
 ## In Progress
 | Priority | ID | Description / plan | Notes |
@@ -16,6 +15,7 @@
 ## Done
 | Priority | ID | Description / plan | Notes |
 | --- | --- | --- | --- |
+| P2 | T018 | Tag v0.1.0 so the README's `go install @v0.1.0` works — [plan](T018-tag-v0.1.0.md) | completed=2026-11-19 |
 | P2 | T017 | Command mode `:` with `cd <folder>` to change the viewed folder in the UI — [plan](T017-command-mode-cd.md) | completed=2026-11-19 |
 | P2 | T016 | Type-to-search in the file tree: bare typing fuzzy-jumps to the best visible row; arrows/click/esc end the session — [plan](T016-tree-type-to-search.md) | completed=2026-11-15 |
 | P2 | T015 | Thin draggable scrollbars on the tree and viewer right edges, with proportional thumb and mouse drag — [plan](T015-scrollbars.md) | completed=2026-11-15 |
