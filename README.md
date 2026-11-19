@@ -12,6 +12,8 @@ tree on the left, read the rendered document on the right.
   loading, and windowed views keep large folders responsive.
 - **Live updates** — saving a file re-renders it in place; new and deleted
   markdown files appear in the tree without a restart.
+- **Change folders without quitting** — `:` opens a command line; `cd <folder>`
+  re-roots the tree (`cd ..`, `cd ~/`, absolute and relative paths).
 - **Mouse and keyboard** — drag the divider, wheel-scroll either pane, or use
   the full vim-friendly keymap; thin scrollbars show position and can be
   dragged. Press `?` for help.
@@ -24,8 +26,17 @@ Requires Go 1.27 or newer.
 go install github.com/smhanov/mdui@latest
 ```
 
+`@latest` is the newest tagged release. To pin this release:
+
+```sh
+go install github.com/smhanov/mdui@v0.1.0
+```
+
 The binary lands in `$GOBIN` (usually `~/go/bin`), which should be on your
-`PATH`. To build from a checkout instead:
+`PATH`. `mdui --version` reports the build you are running. A tagged install
+prints `mdui v0.1.0`.
+
+To build from a checkout instead:
 
 ```sh
 git clone https://github.com/smhanov/mdui.git
@@ -39,10 +50,8 @@ Optionally install that local build system-wide:
 sudo install -m755 mdui /usr/local/bin/mdui
 ```
 
-However you install it, `mdui --version` reports the build you are running.
-`go install github.com/smhanov/mdui@v0.1.0` pins a tagged release, and
-`make build` in a checkout embeds the git version, commit, and build date
-instead of a plain `go build`'s revision.
+`make build` in a checkout embeds the git version, commit, and build date.
+A plain `go build` reports the commit from build info instead.
 
 ## Usage
 
@@ -112,9 +121,16 @@ With the tree focused, typing a character that is not already a command starts
 a live search through the visible tree rows; each character jumps to the best
 match, and `Backspace` edits the query. Arrow/page keys, `Enter`, a mouse click
 or wheel end the session, while `Esc` restores the starting cursor. Keys already
-bound to commands (such as `j`, `f`, `?`, `/`, and `q`) keep their normal action
-when no search is active; use `f` to find a name that starts with one of them.
-Unlike `f`, bare typing searches only rows currently visible in the tree.
+bound to commands (such as `j`, `f`, `?`, `/`, `:`, and `q`) keep their normal
+action when no search is active; use `f` to find a name that starts with one of
+them. Unlike `f`, bare typing searches only rows currently visible in the tree.
+
+`:` opens a command prompt on the status bar. `cd <folder>` changes the viewed
+folder and clears the open document: `cd ..` moves to the parent, `cd ~` and
+`cd ~/` expand to your home directory, and other relative paths resolve against
+the current folder. Absolute paths pass through. `Enter` runs the command;
+`Esc` cancels. A missing path, a file, or an unknown command shows a warning
+and leaves the current folder unchanged.
 
 While the finder is open it captures every key: `q`, `?`, `/` and spaces are
 query text, `ctrl+c` closes like `Esc`, and mouse events are ignored. The query
