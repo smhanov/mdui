@@ -8,7 +8,7 @@ import (
 
 func treeSearchReserved(key string) bool {
 	switch key {
-	case "q", "ctrl+c", "/", "?", "f", "T", "m", "tab", "shift+tab",
+	case "q", "ctrl+c", "/", "?", "f", "T", ":", "m", "tab", "shift+tab",
 		"H", "L", "=", "j", "k", "h", "l", "g", "G", "enter",
 		"up", "down", "left", "right", "pgup", "pgdown", ".", "esc":
 		return true

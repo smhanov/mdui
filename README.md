@@ -76,6 +76,7 @@ from `~/.config/mdui/` (or `$XDG_CONFIG_HOME/mdui/`); see
 | `n` / `N` | next / previous search match (wraps around) |
 | `.` | show or hide dot-prefixed files in the tree |
 | `m` | toggle terminal mouse capture |
+| `:` | command mode: `cd <folder>` changes the viewed folder |
 
 Moving the tree cursor previews files immediately; `Enter` toggles a
 directory or re-opens a file without changing panes. In the viewer, `Enter`

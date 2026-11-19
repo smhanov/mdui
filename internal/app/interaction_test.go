@@ -25,10 +25,13 @@ func TestHelpOverlayOpensAndDismisses(t *testing.T) {
 		t.Fatal("help overlay does not dim the backdrop")
 	}
 	plain := ansi.Strip(out)
-	for _, want := range []string{"mdui keys", "double-click", "to close this help", "mdui — ", "search document", "next / prev", "find file"} {
+	for _, want := range []string{"mdui keys", "double-click", "to close this help", "mdui — ", "search document", "next / prev", "find file", "command mode"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("help overlay missing %q:\n%s", want, plain)
 		}
+	}
+	if strings.Contains(plain, "resize the terminal") {
+		t.Errorf("help overlay truncated at the default window:\n%s", plain)
 	}
 
 	m = pressKey(t, m, tea.KeyPressMsg{Code: 'j', Text: "j"})

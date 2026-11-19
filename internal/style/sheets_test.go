@@ -48,6 +48,7 @@ func TestHelpMarkdownListsImplementedKeys(t *testing.T) {
 		"`←`", "`→`", "`enter`", "`pgup`", "`pgdn`", "`.`", "double-click",
 		"`T`", "footnote link", "`/`", "`n`", "`N`", "search document",
 		"`f`", "find file",
+		"`:`", "command mode",
 	} {
 		if !strings.Contains(help, want) {
 			t.Errorf("help cheatsheet missing %q", want)

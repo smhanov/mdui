@@ -101,6 +101,11 @@ type Model struct {
 	helpBody        string
 	helpWidth       int
 	searchPrompt    bool
+	commandPrompt   bool
+	commandInput    string
+	treeHideEmpty   bool
+	treeSortBy      string
+	viewerOpts      viewer.Options
 	treeSearching   bool
 	treeQuery       string
 	treeOrigin      int
@@ -329,16 +334,20 @@ func New(root string, opts ...Option) Model {
 		m.statePath = path
 	}
 
+	m.treeHideEmpty = cfg.hideEmpty
+	m.treeSortBy = cfg.sortBy
+	m.viewerOpts = viewer.Options{
+		Style:     m.docStyle,
+		Emoji:     cfg.emoji,
+		WrapWidth: cfg.wrapWidth,
+	}
+
 	m.tree = tree.New(root,
 		tree.WithHidden(cfg.hiddenFiles),
 		tree.WithHideEmpty(cfg.hideEmpty),
 		tree.WithSortBy(cfg.sortBy),
 	)
-	m.viewer = viewer.NewWithOptions(viewer.Options{
-		Style:     m.docStyle,
-		Emoji:     cfg.emoji,
-		WrapWidth: cfg.wrapWidth,
-	})
+	m.viewer = viewer.NewWithOptions(m.viewerOpts)
 
 	switch {
 	case cfg.watcherSet:
@@ -462,6 +471,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.searchPrompt {
 		return m.handleSearchPromptKey(msg)
 	}
+	if m.commandPrompt {
+		return m.handleCommandKey(msg)
+	}
 
 	if m.treeSearching {
 		next, cmd, handled := m.handleTreeSearchKey(msg)
@@ -486,6 +498,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "/":
 		return m.startSearch()
+	case ":":
+		return m.startCommandPrompt()
 	case "n", "N":
 		if m.viewer.SearchActive() {
 			return m.jumpSearchMatch(msg.String())
@@ -913,7 +927,7 @@ func (m *Model) closeWatcher() {
 
 func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	m.cancelTreeSearch(false)
-	if m.searchPrompt {
+	if m.searchPrompt || m.commandPrompt {
 		return m, nil
 	}
 	if m.overlay == overlayTable {
@@ -1033,7 +1047,7 @@ func (m *Model) clearClick() {
 }
 
 func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
-	if m.searchPrompt || !m.mouse || m.overlay != overlayNone {
+	if m.searchPrompt || m.commandPrompt || !m.mouse || m.overlay != overlayNone {
 		return m, nil
 	}
 	if m.scrollPane != regionOutside {
@@ -1056,7 +1070,7 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) {
-	if m.searchPrompt {
+	if m.searchPrompt || m.commandPrompt {
 		return m, nil
 	}
 	if m.scrollPane != regionOutside {
@@ -1076,7 +1090,7 @@ func (m Model) handleMouseRelease(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) 
 
 func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	m.cancelTreeSearch(false)
-	if m.searchPrompt || !m.mouse || m.overlay != overlayNone {
+	if m.searchPrompt || m.commandPrompt || !m.mouse || m.overlay != overlayNone {
 		return m, nil
 	}
 	mouse := msg.Mouse()
@@ -1191,6 +1205,9 @@ func (m Model) statusLeft() string {
 	if m.pendingLink != nil {
 		return "open " + m.pendingLink.URL + "? y open · n cancel"
 	}
+	if m.commandPrompt {
+		return ":" + m.commandInput + "▏"
+	}
 	if m.searchPrompt {
 		return "/" + m.viewer.SearchQuery() + "▏"
 	}
@@ -1221,6 +1238,9 @@ func (m Model) statusRight() string {
 	}
 	if m.pendingLink != nil {
 		return "confirm open"
+	}
+	if m.commandPrompt {
+		return "type a command · enter runs · esc cancels"
 	}
 	if m.searchPrompt {
 		return m.searchPromptStatus()
